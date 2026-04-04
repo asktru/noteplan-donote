@@ -15,6 +15,9 @@ function onMessageFromPlugin(type, data) {
     case 'TASK_TOGGLED':
       handleTaskToggled(data);
       break;
+    case 'PRIORITY_CHANGED':
+      handlePriorityChanged(data);
+      break;
     case 'FILTER_CHANGED':
       handleFilterChanged(data);
       break;
@@ -25,6 +28,51 @@ function onMessageFromPlugin(type, data) {
       window.location.reload();
       break;
   }
+}
+
+function handlePriorityChanged(data) {
+  var tasks = document.querySelectorAll('.dn-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
+  var priLabels = { 0: '', 1: '!', 2: '!!', 3: '!!!' };
+  tasks.forEach(function(taskEl) {
+    taskEl.dataset.priority = data.newPriority;
+
+    // Remove existing priority badge
+    var existingPri = taskEl.querySelector('.dn-pri');
+    if (existingPri) existingPri.remove();
+
+    // Remove the "set priority" hover button if we now have a priority
+    if (data.newPriority > 0) {
+      var actBtn = taskEl.querySelector('.dn-task-act[data-action="cyclePriority"]');
+      if (actBtn) actBtn.remove();
+    }
+
+    if (data.newPriority > 0) {
+      // Insert new badge after checkbox
+      var cb = taskEl.querySelector('.dn-cb');
+      var badge = document.createElement('span');
+      badge.className = 'dn-pri dn-pri-' + data.newPriority;
+      badge.dataset.action = 'cyclePriority';
+      badge.textContent = priLabels[data.newPriority];
+      if (cb && cb.nextSibling) {
+        taskEl.insertBefore(badge, cb.nextSibling);
+        // Add space text node
+        taskEl.insertBefore(document.createTextNode(' '), badge.nextSibling);
+      }
+    } else {
+      // Add back the hover button if no priority
+      var acts = taskEl.querySelector('.dn-task-acts');
+      if (acts && !acts.querySelector('[data-action="cyclePriority"]')) {
+        var btn = document.createElement('button');
+        btn.className = 'dn-task-act';
+        btn.dataset.action = 'cyclePriority';
+        btn.title = 'Set priority';
+        var icon = document.createElement('i');
+        icon.className = 'fa-solid fa-exclamation';
+        btn.appendChild(icon);
+        acts.insertBefore(btn, acts.firstChild);
+      }
+    }
+  });
 }
 
 // ============================================

@@ -728,16 +728,19 @@ function buildFilterBar(filters) {
 }
 
 function buildMainContent(noteHTML, filters) {
-  var html = '<div class="dn-main" id="dnMain">';
+  var html = '<div class="dn-main-wrap">';
   if (!noteHTML) {
+    html += '<div class="dn-main" id="dnMain">';
     html += '<div class="dn-empty-main">';
     html += '<i class="fa-solid fa-book-open dn-empty-icon"></i>';
     html += '<h2>Select a note</h2>';
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
-    html += '</div>';
+    html += '</div></div>';
   } else {
     html += buildFilterBar(filters);
+    html += '<div class="dn-main" id="dnMain">';
     html += '<div class="dn-content">' + noteHTML + '</div>';
+    html += '</div>';
   }
   html += '</div>';
   return html;
@@ -925,6 +928,9 @@ function getInlineCSS() {
 '}\n' +
 
 /* Main Content */
+'.dn-main-wrap {\n' +
+'  flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;\n' +
+'}\n' +
 '.dn-main {\n' +
 '  flex: 1; overflow-y: auto; padding: 24px 32px 60px; min-width: 0;\n' +
 '}\n' +
@@ -1091,9 +1097,9 @@ function getInlineCSS() {
 /* Filter bar */
 '.dn-filter-bar {\n' +
 '  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;\n' +
-'  padding: 8px 0 12px; margin-bottom: 8px;\n' +
+'  padding: 8px 16px; flex-shrink: 0;\n' +
 '  border-bottom: 1px solid var(--dn-border);\n' +
-'  position: sticky; top: 0; background: var(--dn-bg); z-index: 5;\n' +
+'  background: var(--dn-bg-card);\n' +
 '}\n' +
 '.dn-filter-group { display: flex; align-items: center; gap: 2px; }\n' +
 '.dn-filter-label {\n' +
@@ -1505,8 +1511,12 @@ async function onMessageFromHTMLView(actionType, data) {
               var cpPrefixes = { 0: '', 1: '! ', 2: '!! ', 3: '!!! ' };
               cpPara.content = cpPrefixes[cpNewPri] + cpBase;
               cpNote.updateParagraph(cpPara);
-              // Full refresh to update rendering
-              await showDonote(msg.filename);
+              // Inline update — no full refresh
+              await sendToHTMLWindow(WINDOW_ID, 'PRIORITY_CHANGED', {
+                filename: msg.filename,
+                lineIndex: cpLine,
+                newPriority: cpNewPri,
+              });
             }
           }
         }
