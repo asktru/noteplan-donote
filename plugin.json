@@ -69,7 +69,7 @@
     {
       "name": "Toggle Pinning",
       "alias": ["pin", "unpin", "toggle pin"],
-      "description": "Toggle pinning of the current note in Donote sidebar",
+      "description": "Toggle pinning of the current note for viewing in the Donote plugin sidebar",
       "jsFunction": "togglePinCommand"
     }
   ]
