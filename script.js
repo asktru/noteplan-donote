@@ -1518,10 +1518,24 @@ async function onMessageFromHTMLView(actionType, data) {
                 else if (oldType === 'cancelled') para.type = 'open';
                 else if (oldType === 'checklistCancelled') para.type = 'checklist';
               } else {
-                if (oldType === 'open') para.type = 'done';
-                else if (oldType === 'done') para.type = 'open';
-                else if (oldType === 'checklist') para.type = 'checklistDone';
-                else if (oldType === 'checklistDone') para.type = 'checklist';
+                if (oldType === 'open') {
+                  para.type = 'done';
+                  var now1 = new Date();
+                  para.content = (para.content || '').trimEnd() + ' @done(' + now1.getFullYear() + '-' + String(now1.getMonth() + 1).padStart(2, '0') + '-' + String(now1.getDate()).padStart(2, '0') + ')';
+                }
+                else if (oldType === 'done') {
+                  para.type = 'open';
+                  para.content = (para.content || '').replace(/\s*@done\([^)]*\)/, '');
+                }
+                else if (oldType === 'checklist') {
+                  para.type = 'checklistDone';
+                  var now2 = new Date();
+                  para.content = (para.content || '').trimEnd() + ' @done(' + now2.getFullYear() + '-' + String(now2.getMonth() + 1).padStart(2, '0') + '-' + String(now2.getDate()).padStart(2, '0') + ')';
+                }
+                else if (oldType === 'checklistDone') {
+                  para.type = 'checklist';
+                  para.content = (para.content || '').replace(/\s*@done\([^)]*\)/, '');
+                }
                 else if (oldType === 'cancelled') para.type = 'open';
                 else if (oldType === 'checklistCancelled') para.type = 'checklist';
               }
