@@ -215,6 +215,51 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         break;
 
+      case 'toggleTask':
+        var taskEl = target.closest('.dn-task');
+        if (taskEl && taskEl.dataset.filename && taskEl.dataset.lineIndex !== undefined) {
+          if (e.altKey) {
+            // Opt+click: cancel
+            sendMessageToPlugin('cancelTask', JSON.stringify({
+              filename: taskEl.dataset.filename,
+              lineIndex: taskEl.dataset.lineIndex,
+            }));
+          } else {
+            sendMessageToPlugin('toggleTask', JSON.stringify({
+              filename: taskEl.dataset.filename,
+              lineIndex: taskEl.dataset.lineIndex,
+            }));
+          }
+        }
+        break;
+
+      case 'copyCode':
+        var codeWrap = target.closest('.dn-code-wrap');
+        if (codeWrap) {
+          var codeEl = codeWrap.querySelector('code');
+          if (codeEl) {
+            navigator.clipboard.writeText(codeEl.textContent).then(function() {
+              target.textContent = '';
+              var checkIcon = document.createElement('i');
+              checkIcon.className = 'fa-solid fa-check';
+              target.appendChild(checkIcon);
+              setTimeout(function() {
+                target.textContent = '';
+                var copyIcon = document.createElement('i');
+                copyIcon.className = 'fa-regular fa-copy';
+                target.appendChild(copyIcon);
+              }, 1500);
+            });
+          }
+        }
+        break;
+
+      case 'openNoteInEditor':
+        if (target.dataset.filename) {
+          sendMessageToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
+        }
+        break;
+
       case 'toggleLeft':
         var left = document.getElementById('dnLeft');
         var leftBackdrop = document.querySelector('.dn-left-backdrop');
@@ -238,4 +283,73 @@ document.addEventListener('DOMContentLoaded', function() {
       attendees.classList.toggle('expanded');
     }
   });
+
+  // ============================================
+  // DRAG AND DROP — pinned notes reordering
+  // ============================================
+
+  var dragSrcEl = null;
+
+  function initPinnedDragAndDrop() {
+    var items = document.querySelectorAll('.dn-note-item');
+    items.forEach(function(item) {
+      item.addEventListener('dragstart', function(e) {
+        dragSrcEl = this;
+        this.classList.add('is-dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', this.dataset.filename);
+      });
+
+      item.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        var rect = this.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        this.classList.remove('drag-over-top', 'drag-over-bottom');
+        if (e.clientY < mid) {
+          this.classList.add('drag-over-top');
+        } else {
+          this.classList.add('drag-over-bottom');
+        }
+      });
+
+      item.addEventListener('dragleave', function() {
+        this.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      item.addEventListener('drop', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.classList.remove('drag-over-top', 'drag-over-bottom');
+        if (!dragSrcEl || dragSrcEl === this) return;
+
+        var rect = this.getBoundingClientRect();
+        var mid = rect.top + rect.height / 2;
+        var parent = this.parentNode;
+
+        if (e.clientY < mid) {
+          parent.insertBefore(dragSrcEl, this);
+        } else {
+          parent.insertBefore(dragSrcEl, this.nextSibling);
+        }
+
+        // Collect new order and send to plugin
+        var orderedFilenames = [];
+        parent.querySelectorAll('.dn-note-item').forEach(function(el) {
+          orderedFilenames.push(el.dataset.filename);
+        });
+        sendMessageToPlugin('reorderPinnedNotes', JSON.stringify({ orderedFilenames: orderedFilenames }));
+      });
+
+      item.addEventListener('dragend', function() {
+        this.classList.remove('is-dragging');
+        document.querySelectorAll('.dn-note-item').forEach(function(el) {
+          el.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+        dragSrcEl = null;
+      });
+    });
+  }
+
+  initPinnedDragAndDrop();
 });

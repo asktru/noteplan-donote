@@ -41,6 +41,56 @@ function npColor(c) {
   return c;
 }
 
+function npColorToCSS(hex) {
+  if (!hex || typeof hex !== 'string') return null;
+  hex = hex.replace(/^#/, '');
+  if (hex.length === 8) {
+    var a = parseInt(hex.substring(0, 2), 16) / 255;
+    var r = parseInt(hex.substring(2, 4), 16);
+    var g = parseInt(hex.substring(4, 6), 16);
+    var b = parseInt(hex.substring(6, 8), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(2) + ')';
+  }
+  if (hex.length === 6) return '#' + hex;
+  return null;
+}
+
+function getThemePriorityColors() {
+  var defaults = {
+    pri3: { bg: 'rgba(255,85,85,0.67)', color: '#FFB5B5' },
+    pri2: { bg: 'rgba(255,85,85,0.47)', color: '#FFCCCC' },
+    pri1: { bg: 'rgba(255,85,85,0.27)', color: '#FFDBBE' },
+  };
+  try {
+    if (typeof Editor === 'undefined' || !Editor.currentTheme || !Editor.currentTheme.values) return defaults;
+    var styles = Editor.currentTheme.values.styles || {};
+    var f1 = styles['flagged-1'];
+    var f2 = styles['flagged-2'];
+    var f3 = styles['flagged-3'];
+    return {
+      pri1: {
+        bg: (f1 && f1.backgroundColor) ? npColorToCSS(f1.backgroundColor) || defaults.pri1.bg : defaults.pri1.bg,
+        color: (f1 && f1.color) ? npColorToCSS(f1.color) || defaults.pri1.color : defaults.pri1.color,
+      },
+      pri2: {
+        bg: (f2 && f2.backgroundColor) ? npColorToCSS(f2.backgroundColor) || defaults.pri2.bg : defaults.pri2.bg,
+        color: (f2 && f2.color) ? npColorToCSS(f2.color) || defaults.pri2.color : defaults.pri2.color,
+      },
+      pri3: {
+        bg: (f3 && f3.backgroundColor) ? npColorToCSS(f3.backgroundColor) || defaults.pri3.bg : defaults.pri3.bg,
+        color: (f3 && f3.color) ? npColorToCSS(f3.color) || defaults.pri3.color : defaults.pri3.color,
+      },
+    };
+  } catch (e) { return defaults; }
+}
+
+function getPriorityCSSVars() {
+  var c = getThemePriorityColors();
+  return '--dn-pri1-bg: ' + c.pri1.bg + '; --dn-pri1-color: ' + c.pri1.color + ';\n' +
+    '--dn-pri2-bg: ' + c.pri2.bg + '; --dn-pri2-color: ' + c.pri2.color + ';\n' +
+    '--dn-pri3-bg: ' + c.pri3.bg + '; --dn-pri3-color: ' + c.pri3.color + ';';
+}
+
 function isLightTheme() {
   try {
     var theme = Editor.currentTheme;
@@ -256,7 +306,41 @@ function renderInline(str) {
   return s;
 }
 
-function renderNoteToHTML(content) {
+function extractPriority(content) {
+  if (content.startsWith('!!! ')) return { level: 3, content: content.substring(4) };
+  if (content.startsWith('!! ')) return { level: 2, content: content.substring(3) };
+  if (content.startsWith('! ')) return { level: 1, content: content.substring(2) };
+  return { level: 0, content: content };
+}
+
+function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent, indentClass, filename, lineIdx) {
+  var statusClass = status === 'done' ? ' dn-done' : status === 'cancelled' ? ' dn-cancelled' : '';
+  var cbBase = isChecklist ? ' dn-cb-square' : '';
+  var cbDoneClass = (status === 'done') ? ' done' : (status === 'cancelled') ? ' cancelled' : '';
+  var cbIcon;
+  if (isChecklist) {
+    cbIcon = status === 'done' ? 'fa-solid fa-square-check' : status === 'cancelled' ? 'fa-solid fa-square-minus' : 'fa-regular fa-square';
+  } else {
+    cbIcon = status === 'done' ? 'fa-solid fa-circle-check' : status === 'cancelled' ? 'fa-solid fa-circle-minus' : 'fa-regular fa-circle';
+  }
+
+  var priBadge = '';
+  if (priLevel > 0) {
+    var priLabels = { 1: '!', 2: '!!', 3: '!!!' };
+    priBadge = '<span class="dn-pri dn-pri-' + priLevel + '">' + priLabels[priLevel] + '</span> ';
+  }
+
+  var fnAttr = filename ? ' data-filename="' + esc(filename) + '"' : '';
+  var lineAttr = lineIdx !== undefined ? ' data-line-index="' + lineIdx + '"' : '';
+
+  var html = '<div class="dn-task' + statusClass + indentClass + '"' + fnAttr + lineAttr + '>';
+  html += '<span class="dn-cb' + cbBase + cbDoneClass + '" data-action="toggleTask"><i class="' + cbIcon + '"></i></span>';
+  html += priBadge;
+  html += '<span class="dn-task-text">' + renderInline(displayContent) + '</span></div>';
+  return html;
+}
+
+function renderNoteToHTML(content, noteFilename) {
   if (!content) return '<div class="dn-empty">No content</div>';
 
   var parsed = parseFrontmatter(content);
@@ -334,9 +418,10 @@ function renderNoteToHTML(content) {
         codeBlockLang = line.trim().substring(3).trim();
         codeLines = [];
       } else {
+        html += '<div class="dn-code-wrap"><button class="dn-code-copy" data-action="copyCode" title="Copy"><i class="fa-regular fa-copy"></i></button>';
         html += '<pre class="dn-code-block"><code' + (codeBlockLang ? ' class="language-' + esc(codeBlockLang) + '"' : '') + '>';
         html += esc(codeLines.join('\n'));
-        html += '</code></pre>';
+        html += '</code></pre></div>';
         inCodeBlock = false;
         codeBlockLang = '';
       }
@@ -407,37 +492,45 @@ function renderNoteToHTML(content) {
     var indent = line.length - trimmed.length;
     var indentClass = indent >= 4 ? ' dn-indent-2' : indent >= 2 ? ' dn-indent-1' : '';
 
-    // Checklist: + [ ] or + [x]
-    var checklistMatch = trimmed.match(/^\+\s+\[([x ])\]\s+(.*)/);
+    // Checklist with brackets: + [ ], + [x], + [-]
+    var checklistMatch = trimmed.match(/^\+\s+\[([x \-])\]\s+(.*)/);
     if (checklistMatch) {
       if (inList) flushList();
-      var clDone = checklistMatch[1] === 'x';
+      var clStatus = checklistMatch[1] === 'x' ? 'done' : checklistMatch[1] === '-' ? 'cancelled' : 'open';
       var clContent = checklistMatch[2];
-      html += '<div class="dn-task' + (clDone ? ' dn-done' : '') + indentClass + '">';
-      html += '<span class="dn-cb dn-cb-square' + (clDone ? ' done' : '') + '"><i class="' + (clDone ? 'fa-solid fa-square-check' : 'fa-regular fa-square') + '"></i></span>';
-      html += '<span class="dn-task-text">' + renderInline(clContent) + '</span></div>';
+      var clPri = extractPriority(clContent);
+      html += buildTaskHTML(clContent, clStatus, true, clPri.level, clPri.content, indentClass, noteFilename, i);
       continue;
     }
 
-    // Task: - [ ], - [x], * [ ], * [x]
-    var taskMatch = trimmed.match(/^[-*]\s+\[([x ])\]\s+(.*)/);
+    // Checklist without brackets: + Something
+    var checklistBareMatch = trimmed.match(/^\+\s+(.+)/);
+    if (checklistBareMatch && !trimmed.startsWith('+ [')) {
+      if (inList) flushList();
+      var clbContent = checklistBareMatch[1];
+      var clbPri = extractPriority(clbContent);
+      html += buildTaskHTML(clbContent, 'open', true, clbPri.level, clbPri.content, indentClass, noteFilename, i);
+      continue;
+    }
+
+    // Task with brackets: - [ ], - [x], - [-], * [ ], * [x], * [-]
+    var taskMatch = trimmed.match(/^[-*]\s+\[([x \-])\]\s+(.*)/);
     if (taskMatch) {
       if (inList) flushList();
-      var tDone = taskMatch[1] === 'x';
+      var tStatus = taskMatch[1] === 'x' ? 'done' : taskMatch[1] === '-' ? 'cancelled' : 'open';
       var tContent = taskMatch[2];
-      html += '<div class="dn-task' + (tDone ? ' dn-done' : '') + indentClass + '">';
-      html += '<span class="dn-cb' + (tDone ? ' done' : '') + '"><i class="' + (tDone ? 'fa-solid fa-circle-check' : 'fa-regular fa-circle') + '"></i></span>';
-      html += '<span class="dn-task-text">' + renderInline(tContent) + '</span></div>';
+      var tPri = extractPriority(tContent);
+      html += buildTaskHTML(tContent, tStatus, false, tPri.level, tPri.content, indentClass, noteFilename, i);
       continue;
     }
 
-    // Task without checkbox: * text (NotePlan treats * as open task)
+    // Task without brackets: * Something (NotePlan treats * as open task)
     var starTaskMatch = trimmed.match(/^\*\s+(.+)/);
     if (starTaskMatch && !trimmed.startsWith('**') && !trimmed.startsWith('* [')) {
       if (inList) flushList();
-      html += '<div class="dn-task' + indentClass + '">';
-      html += '<span class="dn-cb"><i class="fa-regular fa-circle"></i></span>';
-      html += '<span class="dn-task-text">' + renderInline(starTaskMatch[1]) + '</span></div>';
+      var stContent = starTaskMatch[1];
+      var stPri = extractPriority(stContent);
+      html += buildTaskHTML(stContent, 'open', false, stPri.level, stPri.content, indentClass, noteFilename, i);
       continue;
     }
 
@@ -495,7 +588,7 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
   for (var i = 0; i < pinnedNotes.length; i++) {
     var n = pinnedNotes[i];
     var active = n.filename === selectedFilename ? ' active' : '';
-    html += '<button class="dn-note-item' + active + '" data-action="selectNote" data-filename="' + esc(n.filename) + '">';
+    html += '<button class="dn-note-item' + active + '" data-action="selectNote" data-filename="' + esc(n.filename) + '" draggable="true">';
     html += '<span class="dn-note-title">' + esc(n.title) + '</span>';
     html += '<span class="dn-note-folder">' + esc(n.folder) + '</span>';
     html += '</button>';
@@ -505,7 +598,7 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
   return html;
 }
 
-function buildMainContent(noteHTML, noteTitle) {
+function buildMainContent(noteHTML, noteTitle, selectedFilename) {
   var html = '<div class="dn-main" id="dnMain">';
   if (!noteHTML) {
     html += '<div class="dn-empty-main">';
@@ -514,6 +607,12 @@ function buildMainContent(noteHTML, noteTitle) {
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
     html += '</div>';
   } else {
+    if (selectedFilename) {
+      html += '<div class="dn-open-note-bar">';
+      html += '<a class="dn-open-note-btn" data-action="openNoteInEditor" data-filename="' + esc(selectedFilename) + '" title="Open in NotePlan (Cmd+click for new window)">';
+      html += '<i class="fa-solid fa-arrow-up-right-from-square"></i></a>';
+      html += '</div>';
+    }
     html += '<div class="dn-content">' + noteHTML + '</div>';
   }
   html += '</div>';
@@ -536,9 +635,9 @@ function buildRightSidebar(headings, metadata) {
 
     if (metadata.attendees) {
       var emails = metadata.attendees.split(',').map(function(e) { return e.trim(); }).filter(Boolean);
-      html += '<div class="dn-meta-item dn-meta-attendees" id="dnAttendees">';
-      html += '<i class="fa-solid fa-users"></i> ' + emails.length + ' attendee' + (emails.length !== 1 ? 's' : '');
-      html += '<div class="dn-attendee-list" id="dnAttendeeList">';
+      html += '<div class="dn-meta-item dn-meta-attendees">';
+      html += '<span class="dn-meta-inline"><i class="fa-solid fa-users"></i> ' + emails.length + ' attendee' + (emails.length !== 1 ? 's' : '') + '</span>';
+      html += '<div class="dn-attendee-list">';
       for (var a = 0; a < emails.length; a++) {
         html += '<div class="dn-attendee">' + esc(emails[a]) + '</div>';
       }
@@ -578,7 +677,7 @@ function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, m
   html += '<button class="dn-mobile-toggle dn-right-toggle" data-action="toggleRight"><i class="fa-solid fa-list-ul"></i></button>';
   html += buildLeftSidebar(pinnedNotes, selectedFilename);
   html += '<div class="dn-left-backdrop" data-action="toggleLeft"></div>';
-  html += buildMainContent(noteHTML);
+  html += buildMainContent(noteHTML, null, selectedFilename);
   html += buildRightSidebar(headings, metadata);
   html += '<div class="dn-right-backdrop" data-action="toggleRight"></div>';
   html += '</div>';
@@ -596,12 +695,14 @@ function buildFullHTML(bodyContent) {
 
   var themeAttr = isLightTheme() ? 'light' : 'dark';
 
+  var priVars = getPriorityCSSVars();
+
   return '<!DOCTYPE html>\n<html data-theme="' + themeAttr + '">\n<head>\n' +
     '  <meta charset="utf-8">\n' +
     '  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, maximum-scale=1, viewport-fit=cover">\n' +
     '  <title>Donote</title>\n' +
     faLinks +
-    '  <style>' + themeCSS + '\n' + pluginCSS + '</style>\n' +
+    '  <style>' + themeCSS + '\n:root { ' + priVars + ' }\n' + pluginCSS + '</style>\n' +
     '</head>\n<body>\n' +
     bodyContent + '\n' +
     '  <div class="dn-toast" id="dnToast"></div>\n' +
@@ -672,6 +773,9 @@ function getInlineCSS() {
 '}\n' +
 '.dn-note-item:hover { background: var(--dn-border); }\n' +
 '.dn-note-item.active { background: var(--dn-accent-soft); }\n' +
+'.dn-note-item.is-dragging { opacity: 0.4; }\n' +
+'.dn-note-item.drag-over-top { box-shadow: 0 -2px 0 var(--dn-accent); }\n' +
+'.dn-note-item.drag-over-bottom { box-shadow: 0 2px 0 var(--dn-accent); }\n' +
 '.dn-note-title {\n' +
 '  display: block; font-size: 13px; font-weight: 600; color: var(--dn-text);\n' +
 '  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;\n' +
@@ -692,6 +796,18 @@ function getInlineCSS() {
 '}\n' +
 '.dn-empty-icon { font-size: 48px; color: var(--dn-text-faint); margin-bottom: 16px; }\n' +
 '.dn-content { max-width: 720px; }\n' +
+'.dn-open-note-bar {\n' +
+'  display: flex; justify-content: flex-end; position: sticky; top: 0; z-index: 10;\n' +
+'  margin-bottom: -24px; pointer-events: none;\n' +
+'}\n' +
+'.dn-open-note-btn {\n' +
+'  pointer-events: auto; width: 32px; height: 32px;\n' +
+'  display: flex; align-items: center; justify-content: center;\n' +
+'  border-radius: var(--dn-radius-sm); color: var(--dn-text-faint);\n' +
+'  cursor: pointer; font-size: 14px; text-decoration: none;\n' +
+'  transition: all 0.12s;\n' +
+'}\n' +
+'.dn-open-note-btn:hover { background: var(--dn-border); color: var(--dn-text); }\n' +
 
 /* Headings */
 '.dn-heading { margin: 24px 0 8px; font-weight: 700; }\n' +
@@ -739,10 +855,24 @@ function getInlineCSS() {
 '.dn-task.dn-done .dn-task-text { text-decoration: line-through; }\n' +
 '.dn-task.dn-indent-1 { padding-left: 20px; }\n' +
 '.dn-task.dn-indent-2 { padding-left: 40px; }\n' +
-'.dn-cb { flex-shrink: 0; font-size: 16px; margin-top: 2px; color: var(--dn-text-faint); }\n' +
+'.dn-cb { flex-shrink: 0; font-size: 16px; margin-top: 2px; color: var(--dn-text-faint); cursor: pointer; }\n' +
+'.dn-cb:hover { color: var(--dn-green); }\n' +
 '.dn-cb.done { color: var(--dn-green); }\n' +
+'.dn-cb.cancelled { color: var(--dn-text-faint); }\n' +
 '.dn-cb-square { font-size: 15px; }\n' +
+'.dn-task.dn-cancelled { opacity: 0.5; }\n' +
+'.dn-task.dn-cancelled .dn-task-text { text-decoration: line-through; }\n' +
 '.dn-task-text { flex: 1; min-width: 0; }\n' +
+
+/* Priority badges */
+'.dn-pri {\n' +
+'  display: inline-flex; align-items: center; justify-content: center;\n' +
+'  padding: 0 5px; height: 18px; border-radius: 3px;\n' +
+'  font-size: 10px; font-weight: 800; flex-shrink: 0;\n' +
+'}\n' +
+'.dn-pri-1 { background: var(--dn-pri1-bg, rgba(255,85,85,0.27)); color: var(--dn-pri1-color, #FFDBBE); }\n' +
+'.dn-pri-2 { background: var(--dn-pri2-bg, rgba(255,85,85,0.47)); color: var(--dn-pri2-color, #FFCCCC); }\n' +
+'.dn-pri-3 { background: var(--dn-pri3-bg, rgba(255,85,85,0.67)); color: var(--dn-pri3-color, #FFB5B5); }\n' +
 
 /* Lists */
 '.dn-list { margin: 6px 0; padding-left: 24px; }\n' +
@@ -771,6 +901,17 @@ function getInlineCSS() {
 '  line-height: 1.5; white-space: pre;\n' +
 '}\n' +
 '.dn-code-block code { font-family: inherit; font-size: inherit; }\n' +
+'.dn-code-wrap { position: relative; }\n' +
+'.dn-code-copy {\n' +
+'  position: absolute; top: 8px; right: 8px;\n' +
+'  width: 28px; height: 28px; border-radius: 4px;\n' +
+'  border: 1px solid var(--dn-border-strong); background: var(--dn-bg-card);\n' +
+'  color: var(--dn-text-faint); cursor: pointer; font-size: 12px;\n' +
+'  display: flex; align-items: center; justify-content: center;\n' +
+'  opacity: 0; transition: opacity 0.15s;\n' +
+'}\n' +
+'.dn-code-wrap:hover .dn-code-copy { opacity: 1; }\n' +
+'.dn-code-copy:hover { background: var(--dn-accent); color: #fff; border-color: var(--dn-accent); }\n' +
 
 /* Highlight */
 '.dn-highlight {\n' +
@@ -828,8 +969,9 @@ function getInlineCSS() {
 '  background: var(--dn-accent-soft); color: var(--dn-accent);\n' +
 '}\n' +
 '.dn-meta-btn:hover { background: var(--dn-accent); color: #fff; }\n' +
-'.dn-meta-attendees { flex-direction: column; align-items: flex-start; cursor: pointer; }\n' +
-'.dn-attendee-list { display: none; padding: 4px 0 0 22px; }\n' +
+'.dn-meta-attendees { flex-wrap: wrap; cursor: pointer; }\n' +
+'.dn-meta-inline { display: flex; align-items: center; gap: 8px; white-space: nowrap; }\n' +
+'.dn-attendee-list { display: none; width: 100%; padding: 4px 0 0 22px; }\n' +
 '.dn-meta-attendees.expanded .dn-attendee-list { display: block; }\n' +
 '.dn-attendee { font-size: 11px; color: var(--dn-text-faint); padding: 1px 0; }\n' +
 
@@ -932,7 +1074,7 @@ async function showDonote(selectedFilename) {
         var content = note.content || '';
         var parsed = parseFrontmatter(content);
 
-        noteHTML = renderNoteToHTML(content);
+        noteHTML = renderNoteToHTML(content, filename);
         headings = extractHeadings(parsed.body);
 
         // Extract metadata
@@ -1005,7 +1147,7 @@ async function onMessageFromHTMLView(actionType, data) {
           if (note) {
             var content = note.content || '';
             var parsed = parseFrontmatter(content);
-            var noteHTML = renderNoteToHTML(content);
+            var noteHTML = renderNoteToHTML(content, msg.filename);
             var headings = extractHeadings(parsed.body);
             var metadata = {};
             if (parsed.frontmatter.date) metadata.date = parsed.frontmatter.date;
@@ -1022,10 +1164,124 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
+      case 'toggleTask':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var tNote = getNoteByFilename(msg.filename);
+          if (tNote) {
+            var para = tNote.paragraphs[parseInt(msg.lineIndex)];
+            if (para) {
+              var t = para.type;
+              if (t === 'open') para.type = 'done';
+              else if (t === 'done') para.type = 'open';
+              else if (t === 'checklist') para.type = 'checklistDone';
+              else if (t === 'checklistDone') para.type = 'checklist';
+              else if (t === 'cancelled') para.type = 'open';
+              else if (t === 'checklistCancelled') para.type = 'checklist';
+              tNote.updateParagraph(para);
+              // Refresh the note view
+              await showDonote(msg.filename);
+            }
+          }
+        }
+        break;
+
+      case 'cancelTask':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var cNote = getNoteByFilename(msg.filename);
+          if (cNote) {
+            var cPara = cNote.paragraphs[parseInt(msg.lineIndex)];
+            if (cPara) {
+              var ct = cPara.type;
+              if (ct === 'open' || ct === 'done') cPara.type = 'cancelled';
+              else if (ct === 'checklist' || ct === 'checklistDone') cPara.type = 'checklistCancelled';
+              else if (ct === 'cancelled') cPara.type = 'open';
+              else if (ct === 'checklistCancelled') cPara.type = 'checklist';
+              cNote.updateParagraph(cPara);
+              await showDonote(msg.filename);
+            }
+          }
+        }
+        break;
+
+      case 'openNoteInEditor':
+        if (msg.filename) {
+          await CommandBar.onMainThread();
+          Editor.openNoteByFilename(msg.filename);
+        }
+        break;
+
       case 'openURL':
         if (msg.url) {
           await CommandBar.onMainThread();
           NotePlan.openURL(msg.url);
+        }
+        break;
+
+      case 'reorderPinnedNotes':
+        if (msg.orderedFilenames) {
+          // Update pin values to match new order
+          for (var ri = 0; ri < msg.orderedFilenames.length; ri++) {
+            var rNote = getNoteByFilename(msg.orderedFilenames[ri]);
+            if (rNote) {
+              var rContent = rNote.content || '';
+              var rParsed = parseFrontmatter(rContent);
+              if (rParsed.frontmatter.pin !== undefined) {
+                // Update the pin value in frontmatter
+                var newPinVal = ri + 1;
+                var rLines = rContent.split('\n');
+                for (var rl = 0; rl < rLines.length; rl++) {
+                  if (rLines[rl].match(/^pin\s*:/)) {
+                    rLines[rl] = 'pin: ' + newPinVal;
+                    break;
+                  }
+                }
+                rNote.content = rLines.join('\n');
+              }
+            }
+          }
+        }
+        break;
+
+      case 'togglePin':
+        // Toggle pin on currently open note in Editor
+        var pinNote = msg.filename ? getNoteByFilename(msg.filename) : (Editor.note || null);
+        if (pinNote) {
+          var pinContent = pinNote.content || '';
+          var pinParsed = parseFrontmatter(pinContent);
+          if (pinParsed.frontmatter.pin !== undefined) {
+            // Remove pin
+            var pinLines = pinContent.split('\n');
+            for (var pl = 0; pl < pinLines.length; pl++) {
+              if (pinLines[pl].match(/^pin\s*:/)) { pinLines.splice(pl, 1); break; }
+            }
+            pinNote.content = pinLines.join('\n');
+            await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Unpinned' });
+          } else {
+            // Add pin — find highest pin value and add 1
+            var maxPin = 0;
+            var allNotes = DataStore.projectNotes;
+            for (var pn = 0; pn < allNotes.length; pn++) {
+              var pnc = allNotes[pn].content || '';
+              if (pnc.indexOf('pin:') < 0) continue;
+              var pnParsed = parseFrontmatter(pnc);
+              var pnVal = parseInt(pnParsed.frontmatter.pin);
+              if (!isNaN(pnVal) && pnVal > maxPin) maxPin = pnVal;
+            }
+            var newPin = maxPin + 1;
+            // Add to frontmatter
+            var pLines = pinContent.split('\n');
+            if (pLines[0].trim() === '---') {
+              // Insert pin after first ---
+              pLines.splice(1, 0, 'pin: ' + newPin);
+            } else {
+              // No frontmatter — add one
+              pLines.unshift('---', 'pin: ' + newPin, '---');
+            }
+            pinNote.content = pLines.join('\n');
+            await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Pinned' });
+          }
+          // Refresh to show updated sidebar
+          await showDonote(getSettings().lastSelectedNote);
         }
         break;
 
@@ -1041,6 +1297,46 @@ async function onMessageFromHTMLView(actionType, data) {
 // EXPORTS
 // ============================================
 
+async function togglePinCommand() {
+  var note = Editor.note;
+  if (!note) {
+    await CommandBar.prompt('No note open', 'Open a note first, then run this command.');
+    return;
+  }
+  var content = note.content || '';
+  var parsed = parseFrontmatter(content);
+  if (parsed.frontmatter.pin !== undefined) {
+    // Remove pin
+    var lines = content.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].match(/^pin\s*:/)) { lines.splice(i, 1); break; }
+    }
+    note.content = lines.join('\n');
+    await CommandBar.prompt('Unpinned', 'Note removed from Donote sidebar.');
+  } else {
+    // Add pin
+    var maxPin = 0;
+    var allNotes = DataStore.projectNotes;
+    for (var n = 0; n < allNotes.length; n++) {
+      var nc = allNotes[n].content || '';
+      if (nc.indexOf('pin:') < 0) continue;
+      var np = parseFrontmatter(nc);
+      var nv = parseInt(np.frontmatter.pin);
+      if (!isNaN(nv) && nv > maxPin) maxPin = nv;
+    }
+    var newPin = maxPin + 1;
+    var pLines = content.split('\n');
+    if (pLines[0].trim() === '---') {
+      pLines.splice(1, 0, 'pin: ' + newPin);
+    } else {
+      pLines.unshift('---', 'pin: ' + newPin, '---');
+    }
+    note.content = pLines.join('\n');
+    await CommandBar.prompt('Pinned', 'Note added to Donote sidebar with pin: ' + newPin);
+  }
+}
+
 globalThis.showDonote = showDonote;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshDonote = refreshDonote;
+globalThis.togglePinCommand = togglePinCommand;

@@ -65,6 +65,12 @@
       "description": "Refresh the Donote viewer",
       "jsFunction": "refreshDonote",
       "hidden": true
+    },
+    {
+      "name": "Pin/Unpin Note",
+      "alias": ["pin", "unpin"],
+      "description": "Toggle pin on the current note for Donote sidebar",
+      "jsFunction": "togglePinCommand"
     }
   ]
 }
