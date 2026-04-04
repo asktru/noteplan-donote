@@ -340,10 +340,10 @@ function renderInline(str) {
   // Highlight: ==text==
   s = s.replace(/==([^=]+)==/g, '<mark class="dn-highlight">$1</mark>');
 
-  // Scheduled dates: >YYYY-MM-DD, >YYYY-Www, >today
-  s = s.replace(/&gt;(\d{4}-\d{2}-\d{2})/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> $1</span>');
-  s = s.replace(/&gt;(\d{4}-W\d{2})/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> $1</span>');
-  s = s.replace(/&gt;(today)/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> today</span>');
+  // Scheduled dates: >YYYY-MM-DD, >YYYY-Www, >today (clickable to reschedule)
+  s = s.replace(/&gt;(\d{4}-\d{2}-\d{2})/g, '<span class="dn-date-badge" data-action="showSchedule"><i class="fa-regular fa-calendar"></i> $1</span>');
+  s = s.replace(/&gt;(\d{4}-W\d{2})/g, '<span class="dn-date-badge" data-action="showSchedule"><i class="fa-regular fa-calendar"></i> $1</span>');
+  s = s.replace(/&gt;(today)/g, '<span class="dn-date-badge" data-action="showSchedule"><i class="fa-regular fa-calendar"></i> today</span>');
 
   // Tags: #tag (orange, clickable — opens NotePlan tag filter)
   s = s.replace(/(^|[\s(])#([\w][\w/-]*)/g, function(match, pre, tag) {
@@ -966,7 +966,9 @@ function getInlineCSS() {
 '  display: inline-flex; align-items: center; gap: 3px;\n' +
 '  padding: 1px 6px; border-radius: 3px; font-size: 12px;\n' +
 '  background: var(--dn-accent-soft); color: var(--dn-accent);\n' +
+'  cursor: pointer;\n' +
 '}\n' +
+'.dn-date-badge:hover { filter: brightness(1.15); }\n' +
 
 /* Calendar badges */
 '.dn-cal-badge {\n' +
