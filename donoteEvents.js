@@ -298,46 +298,240 @@ function handleScrollSpy() {
 }
 
 // ============================================
-// SCHEDULE PICKER
+// CALENDAR SCHEDULE PICKER
 // ============================================
+
+var calPickerMonth = null; // { year, month } for current display
+var calPickerTask = null; // { filename, lineIndex, currentDate }
+
+function getISOWeek(d) {
+  var dt = new Date(d.getTime());
+  dt.setHours(0, 0, 0, 0);
+  dt.setDate(dt.getDate() + 3 - ((dt.getDay() + 6) % 7));
+  var jan4 = new Date(dt.getFullYear(), 0, 4);
+  var dayDiff = (dt.getTime() - jan4.getTime()) / 86400000;
+  var weekNum = 1 + Math.round((dayDiff - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return { year: dt.getFullYear(), week: weekNum };
+}
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function formatDateStr(y, m, d) { return y + '-' + pad2(m + 1) + '-' + pad2(d); }
+
+function formatWeekStr(y, w) { return y + '-W' + pad2(w); }
 
 function showSchedulePicker(taskEl) {
   removeSchedulePicker();
   var rect = taskEl.getBoundingClientRect();
-  var today = getTodayStr();
-  var tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  var tomorrowStr = tomorrow.getFullYear() + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0');
+  var mainRect = document.getElementById('dnMain').getBoundingClientRect();
+  var currentDate = taskEl.dataset.date || '';
+  var now = new Date();
+
+  calPickerTask = {
+    filename: taskEl.dataset.filename || '',
+    lineIndex: taskEl.dataset.lineIndex || '',
+    currentDate: currentDate,
+  };
+
+  // Determine which month to show
+  if (currentDate && currentDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    var parts = currentDate.split('-');
+    calPickerMonth = { year: parseInt(parts[0]), month: parseInt(parts[1]) - 1 };
+  } else if (currentDate && currentDate.match(/^\d{4}-W\d{2}$/)) {
+    // Get month from week
+    var wp = currentDate.match(/(\d{4})-W(\d{2})/);
+    var jan4 = new Date(parseInt(wp[1]), 0, 4);
+    var mondayW1 = new Date(jan4.getTime());
+    mondayW1.setDate(jan4.getDate() - ((jan4.getDay() + 6) % 7));
+    var weekDate = new Date(mondayW1.getTime());
+    weekDate.setDate(weekDate.getDate() + (parseInt(wp[2]) - 1) * 7);
+    calPickerMonth = { year: weekDate.getFullYear(), month: weekDate.getMonth() };
+  } else {
+    calPickerMonth = { year: now.getFullYear(), month: now.getMonth() };
+  }
 
   var picker = document.createElement('div');
   picker.className = 'dn-sched-picker';
   picker.id = 'dnSchedPicker';
-  picker.dataset.filename = taskEl.dataset.filename || '';
-  picker.dataset.lineIndex = taskEl.dataset.lineIndex || '';
-  picker.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
-  picker.style.left = Math.min(rect.left, window.innerWidth - 170) + 'px';
 
-  var options = [
-    { label: 'Today', date: today },
-    { label: 'Tomorrow', date: tomorrowStr },
-    { label: 'Clear date', date: '', cls: 'danger' },
-  ];
+  // Position: below the task, within the main area
+  var top = rect.bottom + 4;
+  var left = rect.left;
+  if (top + 340 > window.innerHeight) top = rect.top - 340;
+  if (left + 300 > window.innerWidth) left = window.innerWidth - 310;
+  picker.style.top = Math.max(4, top) + 'px';
+  picker.style.left = Math.max(4, left) + 'px';
 
-  for (var i = 0; i < options.length; i++) {
-    var btn = document.createElement('button');
-    btn.className = 'dn-sched-opt' + (options[i].cls ? ' ' + options[i].cls : '');
-    btn.dataset.action = 'scheduleTask';
-    btn.dataset.date = options[i].date;
-    btn.textContent = options[i].label;
-    picker.appendChild(btn);
-  }
-
+  renderCalendarPicker(picker);
   document.body.appendChild(picker);
 
-  // Close on click outside
   setTimeout(function() {
     document.addEventListener('click', closeScheduleOnOutsideClick);
   }, 0);
+}
+
+function renderCalendarPicker(picker) {
+  if (!picker) picker = document.getElementById('dnSchedPicker');
+  if (!picker) return;
+  while (picker.firstChild) picker.removeChild(picker.firstChild);
+
+  var year = calPickerMonth.year;
+  var month = calPickerMonth.month;
+  var today = new Date();
+  var todayStr = formatDateStr(today.getFullYear(), today.getMonth(), today.getDate());
+  var currentDate = calPickerTask ? calPickerTask.currentDate : '';
+  var months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var dayNames = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+  // Header: current date/week display + open note button
+  var header = document.createElement('div');
+  header.className = 'dn-cal-header';
+
+  var headerLeft = document.createElement('span');
+  headerLeft.className = 'dn-cal-header-date';
+  var calIcon = document.createElement('i');
+  calIcon.className = 'fa-regular fa-calendar';
+  headerLeft.appendChild(calIcon);
+  if (currentDate) {
+    headerLeft.appendChild(document.createTextNode(' ' + currentDate));
+  } else {
+    headerLeft.appendChild(document.createTextNode(' No date'));
+  }
+  header.appendChild(headerLeft);
+
+  // Clear date button
+  var clearBtn = document.createElement('button');
+  clearBtn.className = 'dn-cal-clear';
+  clearBtn.title = 'Clear date';
+  clearBtn.textContent = 'Clear';
+  clearBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    sendMessageToPlugin('scheduleTask', JSON.stringify({
+      filename: calPickerTask.filename,
+      lineIndex: calPickerTask.lineIndex,
+      dateStr: '',
+    }));
+    removeSchedulePicker();
+  });
+  header.appendChild(clearBtn);
+
+  picker.appendChild(header);
+
+  // Month navigation
+  var nav = document.createElement('div');
+  nav.className = 'dn-cal-nav';
+
+  var prevBtn = document.createElement('button');
+  prevBtn.className = 'dn-cal-nav-btn';
+  prevBtn.textContent = '<';
+  prevBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    calPickerMonth.month--;
+    if (calPickerMonth.month < 0) { calPickerMonth.month = 11; calPickerMonth.year--; }
+    renderCalendarPicker();
+  });
+
+  var nextBtn = document.createElement('button');
+  nextBtn.className = 'dn-cal-nav-btn';
+  nextBtn.textContent = '>';
+  nextBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    calPickerMonth.month++;
+    if (calPickerMonth.month > 11) { calPickerMonth.month = 0; calPickerMonth.year++; }
+    renderCalendarPicker();
+  });
+
+  var monthLabel = document.createElement('span');
+  monthLabel.className = 'dn-cal-month-label';
+  monthLabel.textContent = months[month] + ' ' + year;
+
+  nav.appendChild(prevBtn);
+  nav.appendChild(monthLabel);
+  nav.appendChild(nextBtn);
+  picker.appendChild(nav);
+
+  // Day names header: W MO TU WE TH FR SA SU
+  var dayHeader = document.createElement('div');
+  dayHeader.className = 'dn-cal-grid dn-cal-day-header';
+  var wHead = document.createElement('span');
+  wHead.className = 'dn-cal-cell dn-cal-week-head';
+  wHead.textContent = 'W';
+  dayHeader.appendChild(wHead);
+  for (var dh = 0; dh < 7; dh++) {
+    var dhCell = document.createElement('span');
+    dhCell.className = 'dn-cal-cell dn-cal-day-name' + (dh >= 5 ? ' weekend' : '');
+    dhCell.textContent = dayNames[dh];
+    dayHeader.appendChild(dhCell);
+  }
+  picker.appendChild(dayHeader);
+
+  // Calendar grid
+  var firstDay = new Date(year, month, 1);
+  var startDow = (firstDay.getDay() + 6) % 7; // 0=Mon
+  var daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  var day = 1 - startDow;
+  while (day <= daysInMonth) {
+    var row = document.createElement('div');
+    row.className = 'dn-cal-grid';
+
+    // Week number cell
+    var weekDate = new Date(year, month, Math.max(day, 1));
+    // Adjust to Thursday of the week for correct ISO week
+    var thu = new Date(weekDate.getTime());
+    thu.setDate(thu.getDate() + (3 - ((thu.getDay() + 6) % 7)));
+    var iw = getISOWeek(thu);
+    var weekStr = formatWeekStr(iw.year, iw.week);
+    var isCurrentWeek = currentDate === weekStr;
+
+    var weekCell = document.createElement('button');
+    weekCell.className = 'dn-cal-cell dn-cal-week-num' + (isCurrentWeek ? ' selected' : '');
+    weekCell.textContent = pad2(iw.week);
+    weekCell.dataset.week = weekStr;
+    weekCell.addEventListener('click', function(e) {
+      e.stopPropagation();
+      sendMessageToPlugin('scheduleTask', JSON.stringify({
+        filename: calPickerTask.filename,
+        lineIndex: calPickerTask.lineIndex,
+        dateStr: this.dataset.week,
+      }));
+      removeSchedulePicker();
+    });
+    row.appendChild(weekCell);
+
+    // Day cells
+    for (var dow = 0; dow < 7; dow++) {
+      var cell = document.createElement('button');
+      cell.className = 'dn-cal-cell dn-cal-day';
+
+      if (day >= 1 && day <= daysInMonth) {
+        var dateStr = formatDateStr(year, month, day);
+        cell.textContent = day;
+        cell.dataset.date = dateStr;
+
+        if (dateStr === todayStr) cell.classList.add('today');
+        if (dateStr === currentDate) cell.classList.add('selected');
+        if (dow >= 5) cell.classList.add('weekend');
+
+        cell.addEventListener('click', function(e) {
+          e.stopPropagation();
+          sendMessageToPlugin('scheduleTask', JSON.stringify({
+            filename: calPickerTask.filename,
+            lineIndex: calPickerTask.lineIndex,
+            dateStr: this.dataset.date,
+          }));
+          removeSchedulePicker();
+        });
+      } else {
+        cell.classList.add('empty');
+      }
+
+      row.appendChild(cell);
+      day++;
+    }
+
+    picker.appendChild(row);
+  }
 }
 
 function closeScheduleOnOutsideClick(e) {
@@ -350,6 +544,7 @@ function closeScheduleOnOutsideClick(e) {
 function removeSchedulePicker() {
   var existing = document.getElementById('dnSchedPicker');
   if (existing) existing.remove();
+  calPickerTask = null;
   document.removeEventListener('click', closeScheduleOnOutsideClick);
 }
 
@@ -474,20 +669,6 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'showSchedule':
         var scTask = target.closest('.dn-task');
         if (scTask) showSchedulePicker(scTask);
-        break;
-
-      case 'scheduleTask':
-        var schTask = target.closest('.dn-sched-picker');
-        if (schTask) {
-          var fn = schTask.dataset.filename;
-          var li = schTask.dataset.lineIndex;
-          sendMessageToPlugin('scheduleTask', JSON.stringify({
-            filename: fn,
-            lineIndex: li,
-            dateStr: target.dataset.date || '',
-          }));
-          removeSchedulePicker();
-        }
         break;
 
       case 'setFilter':
