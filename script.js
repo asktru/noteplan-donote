@@ -1410,7 +1410,8 @@ async function togglePinCommand() {
       pLines.unshift('---', 'pin: ' + newPin, '---');
     }
     note.content = pLines.join('\n');
-    await CommandBar.prompt('Pinned', 'Note added to Donote sidebar with pin: ' + newPin);
+    // Switch to Donote and show the pinned note
+    await showDonote(note.filename);
   }
 }
 
