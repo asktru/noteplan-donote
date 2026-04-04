@@ -167,6 +167,45 @@ function parseFrontmatter(content) {
 // PINNED NOTES DISCOVERY
 // ============================================
 
+/**
+ * Remove a frontmatter key from note content. If frontmatter becomes empty, remove it entirely.
+ */
+function removeFrontmatterKey(content, key) {
+  var lines = content.split('\n');
+  if (lines[0].trim() !== '---') return content;
+
+  // Find end of frontmatter
+  var endIdx = -1;
+  for (var i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === '---') { endIdx = i; break; }
+  }
+  if (endIdx < 0) return content;
+
+  // Remove the key line
+  for (var j = 1; j < endIdx; j++) {
+    if (lines[j].match(new RegExp('^' + key + '\\s*:'))) {
+      lines.splice(j, 1);
+      endIdx--;
+      break;
+    }
+  }
+
+  // Check if frontmatter is now empty (only --- and --- with nothing/whitespace between)
+  var hasContent = false;
+  for (var k = 1; k < endIdx; k++) {
+    if (lines[k].trim() !== '') { hasContent = true; break; }
+  }
+
+  if (!hasContent) {
+    // Remove the empty frontmatter (both --- lines and any blank lines between)
+    lines.splice(0, endIdx + 1);
+    // Also remove leading blank line if one was left
+    while (lines.length > 0 && lines[0].trim() === '') lines.shift();
+  }
+
+  return lines.join('\n');
+}
+
 function getPinnedNotes() {
   var notes = DataStore.projectNotes;
   var pinned = [];
@@ -1296,12 +1335,8 @@ async function onMessageFromHTMLView(actionType, data) {
           var pinContent = pinNote.content || '';
           var pinParsed = parseFrontmatter(pinContent);
           if (pinParsed.frontmatter.pin !== undefined) {
-            // Remove pin
-            var pinLines = pinContent.split('\n');
-            for (var pl = 0; pl < pinLines.length; pl++) {
-              if (pinLines[pl].match(/^pin\s*:/)) { pinLines.splice(pl, 1); break; }
-            }
-            pinNote.content = pinLines.join('\n');
+            // Remove pin (and clean up empty frontmatter)
+            pinNote.content = removeFrontmatterKey(pinContent, 'pin');
             await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Unpinned' });
           } else {
             // Add pin — find highest pin value and add 1
@@ -1353,12 +1388,8 @@ async function togglePinCommand() {
   var content = note.content || '';
   var parsed = parseFrontmatter(content);
   if (parsed.frontmatter.pin !== undefined) {
-    // Remove pin
-    var lines = content.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      if (lines[i].match(/^pin\s*:/)) { lines.splice(i, 1); break; }
-    }
-    note.content = lines.join('\n');
+    // Remove pin (and clean up empty frontmatter)
+    note.content = removeFrontmatterKey(content, 'pin');
     await CommandBar.prompt('Unpinned', 'Note removed from Donote sidebar.');
   } else {
     // Add pin
