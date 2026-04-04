@@ -1434,6 +1434,23 @@ async function sendToHTMLWindow(windowId, type, data) {
   }
 }
 
+async function sendFilterBarUpdate(filename) {
+  var note = getNoteByFilename(filename);
+  if (!note) return;
+  var content = note.content || '';
+  var stats = getTaskStats(content);
+  var parsed = parseFrontmatter(content);
+  var filters = {};
+  if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
+  if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
+  if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+  var filterBarHTML = buildFilterBar(filters, stats);
+  await sendToHTMLWindow(WINDOW_ID, 'FILTER_BAR_UPDATED', {
+    filterBarHTML: filterBarHTML,
+    filters: filters,
+  });
+}
+
 async function onMessageFromHTMLView(actionType, data) {
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
@@ -1532,6 +1549,8 @@ async function onMessageFromHTMLView(actionType, data) {
                   console.log('Donote: Routine plugin not available: ' + String(routineErr));
                 }
               }
+
+              await sendFilterBarUpdate(msg.filename);
             }
           }
         }
@@ -1566,6 +1585,7 @@ async function onMessageFromHTMLView(actionType, data) {
                 lineIndex: cpLine,
                 newPriority: cpNewPri,
               });
+              await sendFilterBarUpdate(msg.filename);
             }
           }
         }

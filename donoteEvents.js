@@ -18,6 +18,9 @@ function onMessageFromPlugin(type, data) {
     case 'PRIORITY_CHANGED':
       handlePriorityChanged(data);
       break;
+    case 'FILTER_BAR_UPDATED':
+      handleFilterBarUpdated(data);
+      break;
     case 'FILTER_CHANGED':
       handleFilterChanged(data);
       break;
@@ -28,6 +31,35 @@ function onMessageFromPlugin(type, data) {
       window.location.reload();
       break;
   }
+}
+
+function handleFilterBarUpdated(data) {
+  var mainWrap = document.querySelector('.dn-main-wrap');
+  if (!mainWrap) return;
+  var oldBar = mainWrap.querySelector('.dn-filter-bar');
+  var mainEl = mainWrap.querySelector('.dn-main');
+
+  if (data.filterBarHTML) {
+    var temp = document.createElement('div');
+    temp.insertAdjacentHTML('afterbegin', data.filterBarHTML);
+    if (temp.firstChild) {
+      if (oldBar) {
+        mainWrap.replaceChild(temp.firstChild, oldBar);
+      } else if (mainEl) {
+        mainWrap.insertBefore(temp.firstChild, mainEl);
+      }
+    }
+  } else if (oldBar) {
+    oldBar.remove();
+  }
+
+  // Restore filter state
+  if (data.filters) {
+    if (data.filters.status) activeFilters.status = data.filters.status;
+    if (data.filters.priority) activeFilters.priority = data.filters.priority;
+    if (data.filters.date) activeFilters.date = data.filters.date;
+  }
+  applyFilters();
 }
 
 function handlePriorityChanged(data) {
