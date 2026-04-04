@@ -12,6 +12,9 @@ function onMessageFromPlugin(type, data) {
     case 'NOTE_LOADED':
       handleNoteLoaded(data);
       break;
+    case 'TASK_TOGGLED':
+      handleTaskToggled(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -19,6 +22,36 @@ function onMessageFromPlugin(type, data) {
       window.location.reload();
       break;
   }
+}
+
+function handleTaskToggled(data) {
+  // Find the task element by filename + lineIndex
+  var tasks = document.querySelectorAll('.dn-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
+  tasks.forEach(function(taskEl) {
+    // Update status classes
+    taskEl.classList.remove('dn-done', 'dn-cancelled');
+    if (data.status === 'done') taskEl.classList.add('dn-done');
+    else if (data.status === 'cancelled') taskEl.classList.add('dn-cancelled');
+
+    // Update checkbox icon
+    var cb = taskEl.querySelector('.dn-cb');
+    if (cb) {
+      cb.classList.remove('done', 'cancelled');
+      if (data.status === 'done') cb.classList.add('done');
+      else if (data.status === 'cancelled') cb.classList.add('cancelled');
+
+      var icon = cb.querySelector('i');
+      if (icon) {
+        if (data.isChecklist) {
+          icon.className = data.status === 'done' ? 'fa-solid fa-square-check' :
+                          data.status === 'cancelled' ? 'fa-solid fa-square-minus' : 'fa-regular fa-square';
+        } else {
+          icon.className = data.status === 'done' ? 'fa-solid fa-circle-check' :
+                          data.status === 'cancelled' ? 'fa-solid fa-circle-minus' : 'fa-regular fa-circle';
+        }
+      }
+    }
+  });
 }
 
 // ============================================
@@ -257,6 +290,12 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'openNoteInEditor':
         if (target.dataset.filename) {
           sendMessageToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
+        }
+        break;
+
+      case 'togglePinFromViewer':
+        if (target.dataset.filename) {
+          sendMessageToPlugin('togglePinFromViewer', JSON.stringify({ filename: target.dataset.filename }));
         }
         break;
 

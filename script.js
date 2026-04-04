@@ -297,11 +297,23 @@ function renderInline(str) {
   s = s.replace(/&gt;(\d{4}-W\d{2})/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> $1</span>');
   s = s.replace(/&gt;(today)/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> today</span>');
 
-  // Tags: #tag (orange)
-  s = s.replace(/(^|[\s(])#([\w][\w/-]*)/g, '$1<span class="dn-tag">#$2</span>');
+  // Tags: #tag (orange, clickable)
+  s = s.replace(/(^|[\s(])#([\w][\w/-]*)/g, function(match, pre, tag) {
+    var tagUrl = 'noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent('#' + tag);
+    return pre + '<a class="dn-tag" href="' + tagUrl + '">#' + tag + '</a>';
+  });
 
-  // Mentions: @mention (orange)
-  s = s.replace(/(^|[\s(])@([\w][\w/-]*(?:\([^)]*\))?)/g, '$1<span class="dn-mention">@$2</span>');
+  // Mentions: @mention (orange, clickable)
+  s = s.replace(/(^|[\s(])@([\w][\w/-]*(?:\([^)]*\))?)/g, function(match, pre, mention) {
+    var mentionUrl = 'noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent('@' + mention);
+    return pre + '<a class="dn-mention" href="' + mentionUrl + '">@' + mention + '</a>';
+  });
+
+  // Inline comments: /* ... */ (dimmed)
+  s = s.replace(/\/\*([^*]*(?:\*(?!\/)[^*]*)*)\*\//g, '<span class="dn-comment">/*$1*/</span>');
+
+  // End-line comments: // ... (dimmed, but not URLs)
+  s = s.replace(/(^|[^:])\/\/\s(.*)$/g, '$1<span class="dn-comment">// $2</span>');
 
   return s;
 }
@@ -345,7 +357,10 @@ function renderNoteToHTML(content, noteFilename) {
 
   var parsed = parseFrontmatter(content);
   var body = parsed.body;
+  var allLines = content.split('\n');
   var lines = body.split('\n');
+  // Calculate line offset: how many lines the frontmatter takes
+  var lineOffset = allLines.length - lines.length;
   var html = '';
   var inCodeBlock = false;
   var codeBlockLang = '';
@@ -499,7 +514,7 @@ function renderNoteToHTML(content, noteFilename) {
       var clStatus = checklistMatch[1] === 'x' ? 'done' : checklistMatch[1] === '-' ? 'cancelled' : 'open';
       var clContent = checklistMatch[2];
       var clPri = extractPriority(clContent);
-      html += buildTaskHTML(clContent, clStatus, true, clPri.level, clPri.content, indentClass, noteFilename, i);
+      html += buildTaskHTML(clContent, clStatus, true, clPri.level, clPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -509,7 +524,7 @@ function renderNoteToHTML(content, noteFilename) {
       if (inList) flushList();
       var clbContent = checklistBareMatch[1];
       var clbPri = extractPriority(clbContent);
-      html += buildTaskHTML(clbContent, 'open', true, clbPri.level, clbPri.content, indentClass, noteFilename, i);
+      html += buildTaskHTML(clbContent, 'open', true, clbPri.level, clbPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -520,7 +535,7 @@ function renderNoteToHTML(content, noteFilename) {
       var tStatus = taskMatch[1] === 'x' ? 'done' : taskMatch[1] === '-' ? 'cancelled' : 'open';
       var tContent = taskMatch[2];
       var tPri = extractPriority(tContent);
-      html += buildTaskHTML(tContent, tStatus, false, tPri.level, tPri.content, indentClass, noteFilename, i);
+      html += buildTaskHTML(tContent, tStatus, false, tPri.level, tPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -530,7 +545,7 @@ function renderNoteToHTML(content, noteFilename) {
       if (inList) flushList();
       var stContent = starTaskMatch[1];
       var stPri = extractPriority(stContent);
-      html += buildTaskHTML(stContent, 'open', false, stPri.level, stPri.content, indentClass, noteFilename, i);
+      html += buildTaskHTML(stContent, 'open', false, stPri.level, stPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -598,7 +613,7 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
   return html;
 }
 
-function buildMainContent(noteHTML, noteTitle, selectedFilename) {
+function buildMainContent(noteHTML) {
   var html = '<div class="dn-main" id="dnMain">';
   if (!noteHTML) {
     html += '<div class="dn-empty-main">';
@@ -607,20 +622,24 @@ function buildMainContent(noteHTML, noteTitle, selectedFilename) {
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
     html += '</div>';
   } else {
-    if (selectedFilename) {
-      html += '<div class="dn-open-note-bar">';
-      html += '<a class="dn-open-note-btn" data-action="openNoteInEditor" data-filename="' + esc(selectedFilename) + '" title="Open in NotePlan (Cmd+click for new window)">';
-      html += '<i class="fa-solid fa-arrow-up-right-from-square"></i></a>';
-      html += '</div>';
-    }
     html += '<div class="dn-content">' + noteHTML + '</div>';
   }
   html += '</div>';
   return html;
 }
 
-function buildRightSidebar(headings, metadata) {
+function buildRightSidebar(headings, metadata, selectedFilename, isPinned) {
   var html = '<div class="dn-right" id="dnRight">';
+
+  // Note action buttons at top
+  if (selectedFilename) {
+    html += '<div class="dn-right-actions">';
+    html += '<a class="dn-right-action-btn" data-action="openNoteInEditor" data-filename="' + esc(selectedFilename) + '" title="Open in split view">';
+    html += '<i class="fa-solid fa-arrow-up-right-from-square"></i> Open</a>';
+    html += '<button class="dn-right-action-btn' + (isPinned ? ' active' : '') + '" data-action="togglePinFromViewer" data-filename="' + esc(selectedFilename) + '" title="' + (isPinned ? 'Unpin' : 'Pin') + '">';
+    html += '<i class="fa-solid fa-thumbtack"></i> ' + (isPinned ? 'Unpin' : 'Pin') + '</button>';
+    html += '</div>';
+  }
 
   // Metadata section
   if (metadata && (metadata.date || metadata.attendees || metadata.recording)) {
@@ -672,13 +691,17 @@ function buildRightSidebar(headings, metadata) {
 }
 
 function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, metadata) {
+  var isPinned = false;
+  for (var pi = 0; pi < pinnedNotes.length; pi++) {
+    if (pinnedNotes[pi].filename === selectedFilename) { isPinned = true; break; }
+  }
   var html = '<div class="dn-layout">';
   html += '<button class="dn-mobile-toggle dn-left-toggle" data-action="toggleLeft"><i class="fa-solid fa-bars"></i></button>';
   html += '<button class="dn-mobile-toggle dn-right-toggle" data-action="toggleRight"><i class="fa-solid fa-list-ul"></i></button>';
   html += buildLeftSidebar(pinnedNotes, selectedFilename);
   html += '<div class="dn-left-backdrop" data-action="toggleLeft"></div>';
-  html += buildMainContent(noteHTML, null, selectedFilename);
-  html += buildRightSidebar(headings, metadata);
+  html += buildMainContent(noteHTML);
+  html += buildRightSidebar(headings, metadata, selectedFilename, isPinned);
   html += '<div class="dn-right-backdrop" data-action="toggleRight"></div>';
   html += '</div>';
   return html;
@@ -796,18 +819,6 @@ function getInlineCSS() {
 '}\n' +
 '.dn-empty-icon { font-size: 48px; color: var(--dn-text-faint); margin-bottom: 16px; }\n' +
 '.dn-content { max-width: 720px; }\n' +
-'.dn-open-note-bar {\n' +
-'  display: flex; justify-content: flex-end; position: sticky; top: 0; z-index: 10;\n' +
-'  margin-bottom: -24px; pointer-events: none;\n' +
-'}\n' +
-'.dn-open-note-btn {\n' +
-'  pointer-events: auto; width: 32px; height: 32px;\n' +
-'  display: flex; align-items: center; justify-content: center;\n' +
-'  border-radius: var(--dn-radius-sm); color: var(--dn-text-faint);\n' +
-'  cursor: pointer; font-size: 14px; text-decoration: none;\n' +
-'  transition: all 0.12s;\n' +
-'}\n' +
-'.dn-open-note-btn:hover { background: var(--dn-border); color: var(--dn-text); }\n' +
 
 /* Headings */
 '.dn-heading { margin: 24px 0 8px; font-weight: 700; }\n' +
@@ -829,7 +840,11 @@ function getInlineCSS() {
 '.dn-wiki-link { color: var(--dn-accent); }\n' +
 
 /* Tags & Mentions */
-'.dn-tag, .dn-mention { color: var(--dn-orange); font-weight: 600; }\n' +
+'.dn-tag, .dn-mention { color: var(--dn-orange); font-weight: 600; text-decoration: none; }\n' +
+'.dn-tag:hover, .dn-mention:hover { text-decoration: underline; }\n' +
+
+/* Comments */
+'.dn-comment { color: var(--dn-text-faint); font-style: italic; }\n' +
 
 /* Date badges */
 '.dn-date-badge {\n' +
@@ -952,6 +967,20 @@ function getInlineCSS() {
 '  display: flex; flex-direction: column; overflow-y: auto;\n' +
 '  padding: 12px 8px;\n' +
 '}\n' +
+'.dn-right-actions {\n' +
+'  display: flex; gap: 4px; padding: 0 0 8px; margin-bottom: 8px;\n' +
+'  border-bottom: 1px solid var(--dn-border);\n' +
+'}\n' +
+'.dn-right-action-btn {\n' +
+'  flex: 1; display: flex; align-items: center; justify-content: center; gap: 5px;\n' +
+'  padding: 6px 8px; font-size: 11px; font-weight: 500;\n' +
+'  border-radius: var(--dn-radius-sm); border: none;\n' +
+'  background: var(--dn-border); color: var(--dn-text-muted);\n' +
+'  cursor: pointer; text-decoration: none; transition: all 0.12s;\n' +
+'}\n' +
+'.dn-right-action-btn:hover { background: var(--dn-border-strong); color: var(--dn-text); }\n' +
+'.dn-right-action-btn.active { background: var(--dn-accent-soft); color: var(--dn-accent); }\n' +
+'.dn-right-action-btn i { font-size: 10px; }\n' +
 '.dn-meta-section {\n' +
 '  padding-bottom: 10px; margin-bottom: 10px;\n' +
 '  border-bottom: 1px solid var(--dn-border);\n' +
@@ -1165,39 +1194,47 @@ async function onMessageFromHTMLView(actionType, data) {
         break;
 
       case 'toggleTask':
+      case 'cancelTask':
         if (msg.filename && msg.lineIndex !== undefined) {
           var tNote = getNoteByFilename(msg.filename);
           if (tNote) {
-            var para = tNote.paragraphs[parseInt(msg.lineIndex)];
-            if (para) {
-              var t = para.type;
-              if (t === 'open') para.type = 'done';
-              else if (t === 'done') para.type = 'open';
-              else if (t === 'checklist') para.type = 'checklistDone';
-              else if (t === 'checklistDone') para.type = 'checklist';
-              else if (t === 'cancelled') para.type = 'open';
-              else if (t === 'checklistCancelled') para.type = 'checklist';
-              tNote.updateParagraph(para);
-              // Refresh the note view
-              await showDonote(msg.filename);
+            var targetLine = parseInt(msg.lineIndex);
+            // Find the paragraph matching this line index
+            var paras = tNote.paragraphs;
+            var para = null;
+            for (var pi = 0; pi < paras.length; pi++) {
+              if (paras[pi].lineIndex === targetLine) { para = paras[pi]; break; }
             }
-          }
-        }
-        break;
+            if (para) {
+              var oldType = para.type;
+              if (actionType === 'cancelTask') {
+                if (oldType === 'open' || oldType === 'done') para.type = 'cancelled';
+                else if (oldType === 'checklist' || oldType === 'checklistDone') para.type = 'checklistCancelled';
+                else if (oldType === 'cancelled') para.type = 'open';
+                else if (oldType === 'checklistCancelled') para.type = 'checklist';
+              } else {
+                if (oldType === 'open') para.type = 'done';
+                else if (oldType === 'done') para.type = 'open';
+                else if (oldType === 'checklist') para.type = 'checklistDone';
+                else if (oldType === 'checklistDone') para.type = 'checklist';
+                else if (oldType === 'cancelled') para.type = 'open';
+                else if (oldType === 'checklistCancelled') para.type = 'checklist';
+              }
+              tNote.updateParagraph(para);
 
-      case 'cancelTask':
-        if (msg.filename && msg.lineIndex !== undefined) {
-          var cNote = getNoteByFilename(msg.filename);
-          if (cNote) {
-            var cPara = cNote.paragraphs[parseInt(msg.lineIndex)];
-            if (cPara) {
-              var ct = cPara.type;
-              if (ct === 'open' || ct === 'done') cPara.type = 'cancelled';
-              else if (ct === 'checklist' || ct === 'checklistDone') cPara.type = 'checklistCancelled';
-              else if (ct === 'cancelled') cPara.type = 'open';
-              else if (ct === 'checklistCancelled') cPara.type = 'checklist';
-              cNote.updateParagraph(cPara);
-              await showDonote(msg.filename);
+              // Determine new visual state
+              var newType = para.type;
+              var isChecklist = newType === 'checklist' || newType === 'checklistDone' || newType === 'checklistCancelled';
+              var uiStatus = 'open';
+              if (newType === 'done' || newType === 'checklistDone') uiStatus = 'done';
+              else if (newType === 'cancelled' || newType === 'checklistCancelled') uiStatus = 'cancelled';
+
+              await sendToHTMLWindow(WINDOW_ID, 'TASK_TOGGLED', {
+                filename: msg.filename,
+                lineIndex: targetLine,
+                status: uiStatus,
+                isChecklist: isChecklist,
+              });
             }
           }
         }
@@ -1206,7 +1243,15 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'openNoteInEditor':
         if (msg.filename) {
           await CommandBar.onMainThread();
-          Editor.openNoteByFilename(msg.filename);
+          // Open in split view
+          var noteTitle = '';
+          var oNote = getNoteByFilename(msg.filename);
+          if (oNote) noteTitle = oNote.title || '';
+          if (noteTitle) {
+            NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(noteTitle) + '&splitView=yes');
+          } else {
+            Editor.openNoteByFilename(msg.filename);
+          }
         }
         break;
 
@@ -1242,6 +1287,7 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
+      case 'togglePinFromViewer':
       case 'togglePin':
         // Toggle pin on currently open note in Editor
         var pinNote = msg.filename ? getNoteByFilename(msg.filename) : (Editor.note || null);
