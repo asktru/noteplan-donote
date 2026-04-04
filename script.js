@@ -1434,6 +1434,19 @@ async function sendToHTMLWindow(windowId, type, data) {
   }
 }
 
+function getDoneTag() {
+  var now = new Date();
+  var y = now.getFullYear();
+  var mo = String(now.getMonth() + 1).padStart(2, '0');
+  var d = String(now.getDate()).padStart(2, '0');
+  var h = now.getHours();
+  var mi = String(now.getMinutes()).padStart(2, '0');
+  var ampm = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12;
+  if (h12 === 0) h12 = 12;
+  return '@done(' + y + '-' + mo + '-' + d + ' ' + String(h12).padStart(2, '0') + ':' + mi + ' ' + ampm + ')';
+}
+
 async function sendFilterBarUpdate(filename) {
   var note = getNoteByFilename(filename);
   if (!note) return;
@@ -1520,8 +1533,7 @@ async function onMessageFromHTMLView(actionType, data) {
               } else {
                 if (oldType === 'open') {
                   para.type = 'done';
-                  var now1 = new Date();
-                  para.content = (para.content || '').trimEnd() + ' @done(' + now1.getFullYear() + '-' + String(now1.getMonth() + 1).padStart(2, '0') + '-' + String(now1.getDate()).padStart(2, '0') + ')';
+                  para.content = (para.content || '').trimEnd() + ' ' + getDoneTag();
                 }
                 else if (oldType === 'done') {
                   para.type = 'open';
@@ -1529,8 +1541,7 @@ async function onMessageFromHTMLView(actionType, data) {
                 }
                 else if (oldType === 'checklist') {
                   para.type = 'checklistDone';
-                  var now2 = new Date();
-                  para.content = (para.content || '').trimEnd() + ' @done(' + now2.getFullYear() + '-' + String(now2.getMonth() + 1).padStart(2, '0') + '-' + String(now2.getDate()).padStart(2, '0') + ')';
+                  para.content = (para.content || '').trimEnd() + ' ' + getDoneTag();
                 }
                 else if (oldType === 'checklistDone') {
                   para.type = 'checklist';
@@ -1558,7 +1569,7 @@ async function onMessageFromHTMLView(actionType, data) {
               // If task has @repeat and was just completed/cancelled, invoke Routine plugin
               if ((uiStatus === 'done' || uiStatus === 'cancelled') && para.content && para.content.indexOf('@repeat') >= 0) {
                 try {
-                  await DataStore.invokePluginCommandByName('generate repeats', 'asktru.Routine', [tNote]);
+                  await DataStore.invokePluginCommandByName('generate repeats', 'asktru.Routine', [msg.filename]);
                 } catch (routineErr) {
                   console.log('Donote: Routine plugin not available: ' + String(routineErr));
                 }
