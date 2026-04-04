@@ -1232,11 +1232,19 @@ async function onMessageFromHTMLView(actionType, data) {
             if (parsed.frontmatter.attendees) metadata.attendees = parsed.frontmatter.attendees;
             if (parsed.frontmatter.recording) metadata.recording = parsed.frontmatter.recording;
 
+            // Check if this note is pinned
+            var pinnedList = getPinnedNotes();
+            var noteIsPinned = false;
+            for (var pci = 0; pci < pinnedList.length; pci++) {
+              if (pinnedList[pci].filename === msg.filename) { noteIsPinned = true; break; }
+            }
+
             await sendToHTMLWindow(WINDOW_ID, 'NOTE_LOADED', {
               filename: msg.filename,
               noteHTML: noteHTML,
               headings: headings,
               metadata: metadata,
+              isPinned: noteIsPinned,
             });
           }
         }

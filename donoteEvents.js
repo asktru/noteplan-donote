@@ -89,6 +89,36 @@ function handleNoteLoaded(data) {
   if (right) {
     while (right.firstChild) right.removeChild(right.firstChild);
 
+    // Action buttons (Open + Pin/Unpin)
+    if (data.filename) {
+      var actionsDiv = document.createElement('div');
+      actionsDiv.className = 'dn-right-actions';
+
+      var openBtn = document.createElement('a');
+      openBtn.className = 'dn-right-action-btn';
+      openBtn.dataset.action = 'openNoteInEditor';
+      openBtn.dataset.filename = data.filename;
+      openBtn.title = 'Open in split view';
+      var openIcon = document.createElement('i');
+      openIcon.className = 'fa-solid fa-arrow-up-right-from-square';
+      openBtn.appendChild(openIcon);
+      openBtn.appendChild(document.createTextNode(' Open'));
+      actionsDiv.appendChild(openBtn);
+
+      var pinBtn = document.createElement('button');
+      pinBtn.className = 'dn-right-action-btn' + (data.isPinned ? ' active' : '');
+      pinBtn.dataset.action = 'togglePinFromViewer';
+      pinBtn.dataset.filename = data.filename;
+      pinBtn.title = data.isPinned ? 'Unpin' : 'Pin';
+      var pinIcon = document.createElement('i');
+      pinIcon.className = 'fa-solid fa-thumbtack';
+      pinBtn.appendChild(pinIcon);
+      pinBtn.appendChild(document.createTextNode(' ' + (data.isPinned ? 'Unpin' : 'Pin')));
+      actionsDiv.appendChild(pinBtn);
+
+      right.appendChild(actionsDiv);
+    }
+
     // Metadata section
     var meta = data.metadata || {};
     if (meta.date || meta.attendees || meta.recording) {
