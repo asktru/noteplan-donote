@@ -15,6 +15,9 @@ function onMessageFromPlugin(type, data) {
     case 'TASK_TOGGLED':
       handleTaskToggled(data);
       break;
+    case 'FILTER_CHANGED':
+      handleFilterChanged(data);
+      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -22,6 +25,61 @@ function onMessageFromPlugin(type, data) {
       window.location.reload();
       break;
   }
+}
+
+// ============================================
+// FILTER LOGIC
+// ============================================
+
+var activeFilters = { status: 'all', priority: 'all', date: 'all' };
+
+function handleFilterChanged(data) {
+  activeFilters[data.group] = data.value;
+  // Update filter button states
+  var btns = document.querySelectorAll('.dn-filter-btn[data-group="' + data.group + '"]');
+  btns.forEach(function(b) { b.classList.toggle('active', b.dataset.value === data.value); });
+  applyFilters();
+}
+
+function getTodayStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function applyFilters() {
+  var tasks = document.querySelectorAll('.dn-task');
+  var today = getTodayStr();
+  tasks.forEach(function(t) {
+    var status = t.dataset.status || 'open';
+    var pri = parseInt(t.dataset.priority || '0');
+    var date = t.dataset.date || '';
+    var show = true;
+
+    // Status filter
+    if (activeFilters.status !== 'all') {
+      if (activeFilters.status === 'open' && status !== 'open') show = false;
+      if (activeFilters.status === 'done' && status !== 'done') show = false;
+      if (activeFilters.status === 'cancelled' && status !== 'cancelled') show = false;
+    }
+
+    // Priority filter
+    if (show && activeFilters.priority !== 'all') {
+      if (activeFilters.priority === 'high' && pri !== 3) show = false;
+      if (activeFilters.priority === 'med+' && pri < 2) show = false;
+      if (activeFilters.priority === 'any' && pri === 0) show = false;
+      if (activeFilters.priority === 'none' && pri !== 0) show = false;
+    }
+
+    // Date filter
+    if (show && activeFilters.date !== 'all') {
+      if (activeFilters.date === 'nodate' && date !== '') show = false;
+      if (activeFilters.date === 'overdue' && (date === '' || date >= today)) show = false;
+      if (activeFilters.date === 'today' && date !== today) show = false;
+      if (activeFilters.date === 'overdue+today' && (date === '' || date > today)) show = false;
+    }
+
+    t.style.display = show ? '' : 'none';
+  });
 }
 
 function handleTaskToggled(data) {
@@ -240,6 +298,62 @@ function handleScrollSpy() {
 }
 
 // ============================================
+// SCHEDULE PICKER
+// ============================================
+
+function showSchedulePicker(taskEl) {
+  removeSchedulePicker();
+  var rect = taskEl.getBoundingClientRect();
+  var today = getTodayStr();
+  var tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  var tomorrowStr = tomorrow.getFullYear() + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0');
+
+  var picker = document.createElement('div');
+  picker.className = 'dn-sched-picker';
+  picker.id = 'dnSchedPicker';
+  picker.dataset.filename = taskEl.dataset.filename || '';
+  picker.dataset.lineIndex = taskEl.dataset.lineIndex || '';
+  picker.style.top = Math.min(rect.bottom + 4, window.innerHeight - 200) + 'px';
+  picker.style.left = Math.min(rect.left, window.innerWidth - 170) + 'px';
+
+  var options = [
+    { label: 'Today', date: today },
+    { label: 'Tomorrow', date: tomorrowStr },
+    { label: 'Clear date', date: '', cls: 'danger' },
+  ];
+
+  for (var i = 0; i < options.length; i++) {
+    var btn = document.createElement('button');
+    btn.className = 'dn-sched-opt' + (options[i].cls ? ' ' + options[i].cls : '');
+    btn.dataset.action = 'scheduleTask';
+    btn.dataset.date = options[i].date;
+    btn.textContent = options[i].label;
+    picker.appendChild(btn);
+  }
+
+  document.body.appendChild(picker);
+
+  // Close on click outside
+  setTimeout(function() {
+    document.addEventListener('click', closeScheduleOnOutsideClick);
+  }, 0);
+}
+
+function closeScheduleOnOutsideClick(e) {
+  var picker = document.getElementById('dnSchedPicker');
+  if (picker && !picker.contains(e.target)) {
+    removeSchedulePicker();
+  }
+}
+
+function removeSchedulePicker() {
+  var existing = document.getElementById('dnSchedPicker');
+  if (existing) existing.remove();
+  document.removeEventListener('click', closeScheduleOnOutsideClick);
+}
+
+// ============================================
 // TOAST
 // ============================================
 
@@ -257,6 +371,14 @@ function showToast(message) {
 
 document.addEventListener('DOMContentLoaded', function() {
   setupScrollSpy();
+
+  // Init filters from active buttons
+  document.querySelectorAll('.dn-filter-btn.active').forEach(function(b) {
+    activeFilters[b.dataset.group] = b.dataset.value;
+  });
+  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all') {
+    applyFilters();
+  }
 
   // Delegated click handler
   document.body.addEventListener('click', function(e) {
@@ -327,6 +449,58 @@ document.addEventListener('DOMContentLoaded', function() {
         if (target.dataset.filename) {
           sendMessageToPlugin('togglePinFromViewer', JSON.stringify({ filename: target.dataset.filename }));
         }
+        break;
+
+      case 'cyclePriority':
+        var cpTask = target.closest('.dn-task');
+        if (cpTask && cpTask.dataset.filename) {
+          sendMessageToPlugin('cyclePriority', JSON.stringify({
+            filename: cpTask.dataset.filename,
+            lineIndex: cpTask.dataset.lineIndex,
+          }));
+        }
+        break;
+
+      case 'cancelTask':
+        var caTask = target.closest('.dn-task');
+        if (caTask && caTask.dataset.filename) {
+          sendMessageToPlugin('cancelTask', JSON.stringify({
+            filename: caTask.dataset.filename,
+            lineIndex: caTask.dataset.lineIndex,
+          }));
+        }
+        break;
+
+      case 'showSchedule':
+        var scTask = target.closest('.dn-task');
+        if (scTask) showSchedulePicker(scTask);
+        break;
+
+      case 'scheduleTask':
+        var schTask = target.closest('.dn-sched-picker');
+        if (schTask) {
+          var fn = schTask.dataset.filename;
+          var li = schTask.dataset.lineIndex;
+          sendMessageToPlugin('scheduleTask', JSON.stringify({
+            filename: fn,
+            lineIndex: li,
+            dateStr: target.dataset.date || '',
+          }));
+          removeSchedulePicker();
+        }
+        break;
+
+      case 'setFilter':
+        var group = target.dataset.group;
+        var value = target.dataset.value;
+        // Get filename from currently active note in sidebar
+        var activeNote = document.querySelector('.dn-note-item.active');
+        var filterFn = activeNote ? activeNote.dataset.filename : '';
+        sendMessageToPlugin('setFilter', JSON.stringify({
+          filename: filterFn,
+          group: group,
+          value: value,
+        }));
         break;
 
       case 'toggleLeft':
