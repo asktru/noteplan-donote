@@ -863,18 +863,18 @@ function getInlineCSS() {
 
 /* Tasks */
 '.dn-task {\n' +
-'  display: flex; align-items: flex-start; gap: 8px;\n' +
+'  display: flex; align-items: baseline; gap: 6px;\n' +
 '  padding: 3px 0; line-height: 1.5;\n' +
 '}\n' +
 '.dn-task.dn-done { opacity: 0.5; }\n' +
 '.dn-task.dn-done .dn-task-text { text-decoration: line-through; }\n' +
 '.dn-task.dn-indent-1 { padding-left: 20px; }\n' +
 '.dn-task.dn-indent-2 { padding-left: 40px; }\n' +
-'.dn-cb { flex-shrink: 0; font-size: 16px; margin-top: 2px; color: var(--dn-text-faint); cursor: pointer; }\n' +
+'.dn-cb { flex-shrink: 0; font-size: 14px; color: var(--dn-text-faint); cursor: pointer; position: relative; top: 1px; }\n' +
 '.dn-cb:hover { color: var(--dn-green); }\n' +
 '.dn-cb.done { color: var(--dn-green); }\n' +
 '.dn-cb.cancelled { color: var(--dn-text-faint); }\n' +
-'.dn-cb-square { font-size: 15px; }\n' +
+'.dn-cb-square { font-size: 13px; }\n' +
 '.dn-task.dn-cancelled { opacity: 0.5; }\n' +
 '.dn-task.dn-cancelled .dn-task-text { text-decoration: line-through; }\n' +
 '.dn-task-text { flex: 1; min-width: 0; }\n' +
@@ -882,8 +882,9 @@ function getInlineCSS() {
 /* Priority badges */
 '.dn-pri {\n' +
 '  display: inline-flex; align-items: center; justify-content: center;\n' +
-'  padding: 0 5px; height: 18px; border-radius: 3px;\n' +
-'  font-size: 10px; font-weight: 800; flex-shrink: 0;\n' +
+'  padding: 0 5px; height: 16px; border-radius: 3px;\n' +
+'  font-size: 9px; font-weight: 800; flex-shrink: 0;\n' +
+'  position: relative; top: -1px;\n' +
 '}\n' +
 '.dn-pri-1 { background: var(--dn-pri1-bg, rgba(255,85,85,0.27)); color: var(--dn-pri1-color, #FFDBBE); }\n' +
 '.dn-pri-2 { background: var(--dn-pri2-bg, rgba(255,85,85,0.47)); color: var(--dn-pri2-color, #FFCCCC); }\n' +
