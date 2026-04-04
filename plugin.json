@@ -1,0 +1,70 @@
+{
+  "macOS.minVersion": "10.13.0",
+  "noteplan.minAppVersion": "3.9.0",
+  "plugin.id": "asktru.Donote",
+  "plugin.name": "Donote",
+  "plugin.description": "A note viewer with pinned notes, markdown rendering, and table of contents.",
+  "plugin.icon": "📖",
+  "plugin.author": "asktru",
+  "plugin.version": "1.0.0",
+  "plugin.lastUpdateInfo": "Initial release",
+  "plugin.script": "script.js",
+  "plugin.isRemote": "false",
+  "plugin.dependsOn": [
+    {
+      "id": "np.Shared",
+      "minVersion": "1.0.0"
+    }
+  ],
+  "plugin.requiredFiles": [
+    "donoteEvents.js"
+  ],
+  "plugin.requiredSharedFiles": [
+    "fontawesome.css",
+    "regular.min.flat4NP.css",
+    "solid.min.flat4NP.css",
+    "fa-regular-400.woff2",
+    "fa-solid-900.woff2",
+    "pluginToHTMLCommsBridge.js"
+  ],
+  "plugin.settings": [
+    {
+      "type": "heading",
+      "title": "Donote Settings"
+    },
+    {
+      "key": "lastSelectedNote",
+      "title": "Last Selected Note",
+      "description": "Internal. Remembers the last viewed note.",
+      "type": "hidden",
+      "default": "",
+      "required": false
+    }
+  ],
+  "plugin.commands": [
+    {
+      "name": "Donote",
+      "alias": ["donote", "note viewer", "reader"],
+      "description": "Open the Donote note viewer",
+      "jsFunction": "showDonote",
+      "sidebarView": {
+        "windowID": "asktru.Donote.dashboard",
+        "title": "Donote",
+        "icon": "fa-book-open",
+        "iconColor": "#6366F1"
+      }
+    },
+    {
+      "name": "onMessageFromHTMLView",
+      "description": "Callback for HTML window messages",
+      "jsFunction": "onMessageFromHTMLView",
+      "hidden": true
+    },
+    {
+      "name": "Refresh Donote",
+      "description": "Refresh the Donote viewer",
+      "jsFunction": "refreshDonote",
+      "hidden": true
+    }
+  ]
+}
