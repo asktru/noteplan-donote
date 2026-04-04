@@ -395,7 +395,7 @@ function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent
   var priBadge = '';
   if (priLevel > 0) {
     var priLabels = { 1: '!', 2: '!!', 3: '!!!' };
-    priBadge = '<span class="dn-pri dn-pri-' + priLevel + '" data-action="cyclePriority"><i class="fa-solid fa-exclamation"></i> ' + priLabels[priLevel] + '</span> ';
+    priBadge = '<span class="dn-pri dn-pri-' + priLevel + '" data-action="cyclePriority">' + priLabels[priLevel] + '</span> ';
   }
 
   var schedDate = extractScheduledDate(rawContent);
