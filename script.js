@@ -1494,16 +1494,16 @@ async function onMessageFromHTMLView(actionType, data) {
             }
             if (cpPara) {
               var cpContent = cpPara.content || '';
+              // Strip existing priority prefix cleanly
+              var cpBase = cpContent.replace(/^!{1,3}\s+/, '');
+              var cpCurPri = 0;
+              if (cpContent.startsWith('!!! ')) cpCurPri = 3;
+              else if (cpContent.startsWith('!! ')) cpCurPri = 2;
+              else if (cpContent.startsWith('! ')) cpCurPri = 1;
               // Cycle: none → ! → !! → !!! → none
-              if (cpContent.startsWith('!!! ')) {
-                cpPara.content = cpContent.substring(4);
-              } else if (cpContent.startsWith('!! ')) {
-                cpPara.content = '!!! ' + cpContent.substring(3);
-              } else if (cpContent.startsWith('! ')) {
-                cpPara.content = '!! ' + cpContent.substring(2);
-              } else {
-                cpPara.content = '! ' + cpContent;
-              }
+              var cpNewPri = (cpCurPri + 1) % 4;
+              var cpPrefixes = { 0: '', 1: '! ', 2: '!! ', 3: '!!! ' };
+              cpPara.content = cpPrefixes[cpNewPri] + cpBase;
               cpNote.updateParagraph(cpPara);
               // Full refresh to update rendering
               await showDonote(msg.filename);
