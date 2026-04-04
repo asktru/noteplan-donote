@@ -297,15 +297,15 @@ function renderInline(str) {
   s = s.replace(/&gt;(\d{4}-W\d{2})/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> $1</span>');
   s = s.replace(/&gt;(today)/g, '<span class="dn-date-badge"><i class="fa-regular fa-calendar"></i> today</span>');
 
-  // Tags: #tag (orange, clickable)
+  // Tags: #tag (orange, clickable — opens NotePlan tag filter)
   s = s.replace(/(^|[\s(])#([\w][\w/-]*)/g, function(match, pre, tag) {
-    var tagUrl = 'noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent('#' + tag);
+    var tagUrl = 'noteplan://x-callback-url/selectTag?name=' + encodeURIComponent('#' + tag);
     return pre + '<a class="dn-tag" href="' + tagUrl + '">#' + tag + '</a>';
   });
 
-  // Mentions: @mention (orange, clickable)
+  // Mentions: @mention (orange, clickable — opens NotePlan mention filter)
   s = s.replace(/(^|[\s(])@([\w][\w/-]*(?:\([^)]*\))?)/g, function(match, pre, mention) {
-    var mentionUrl = 'noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent('@' + mention);
+    var mentionUrl = 'noteplan://x-callback-url/selectTag?name=' + encodeURIComponent('@' + mention);
     return pre + '<a class="dn-mention" href="' + mentionUrl + '">@' + mention + '</a>';
   });
 
