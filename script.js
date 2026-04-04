@@ -737,7 +737,10 @@ function buildMainContent(noteHTML, filters) {
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
     html += '</div></div>';
   } else {
-    html += buildFilterBar(filters);
+    // Only show filter bar if note has tasks/checklists
+    if (noteHTML.indexOf('dn-task') >= 0) {
+      html += buildFilterBar(filters);
+    }
     html += '<div class="dn-main" id="dnMain">';
     html += '<div class="dn-content">' + noteHTML + '</div>';
     html += '</div>';
