@@ -206,8 +206,17 @@ function removeFrontmatterKey(content, key) {
   return lines.join('\n');
 }
 
+function getAllNotes() {
+  var all = [];
+  var proj = DataStore.projectNotes;
+  var cal = DataStore.calendarNotes;
+  for (var i = 0; i < proj.length; i++) all.push(proj[i]);
+  for (var j = 0; j < cal.length; j++) all.push(cal[j]);
+  return all;
+}
+
 function getPinnedNotes() {
-  var notes = DataStore.projectNotes;
+  var notes = getAllNotes();
   var pinned = [];
   for (var i = 0; i < notes.length; i++) {
     var note = notes[i];
@@ -233,7 +242,7 @@ function getPinnedNotes() {
 }
 
 function getNoteByFilename(filename) {
-  var notes = DataStore.projectNotes;
+  var notes = getAllNotes();
   for (var i = 0; i < notes.length; i++) {
     if (notes[i].filename === filename) return notes[i];
   }
@@ -1341,7 +1350,7 @@ async function onMessageFromHTMLView(actionType, data) {
           } else {
             // Add pin — find highest pin value and add 1
             var maxPin = 0;
-            var allNotes = DataStore.projectNotes;
+            var allNotes = getAllNotes();
             for (var pn = 0; pn < allNotes.length; pn++) {
               var pnc = allNotes[pn].content || '';
               if (pnc.indexOf('pin:') < 0) continue;
@@ -1394,7 +1403,7 @@ async function togglePinCommand() {
   } else {
     // Add pin
     var maxPin = 0;
-    var allNotes = DataStore.projectNotes;
+    var allNotes = getAllNotes();
     for (var n = 0; n < allNotes.length; n++) {
       var nc = allNotes[n].content || '';
       if (nc.indexOf('pin:') < 0) continue;
