@@ -171,6 +171,28 @@ function handleNoteLoaded(data) {
     items[i].classList.toggle('active', items[i].dataset.filename === data.filename);
   }
 
+  // Update filter bar
+  var mainWrap = document.querySelector('.dn-main-wrap');
+  if (mainWrap) {
+    var oldFilterBar = mainWrap.querySelector('.dn-filter-bar');
+    if (oldFilterBar) oldFilterBar.remove();
+    if (data.filterBarHTML) {
+      var filterTemp = document.createElement('div');
+      filterTemp.insertAdjacentHTML('afterbegin', data.filterBarHTML);
+      if (filterTemp.firstChild) {
+        var mainEl = mainWrap.querySelector('.dn-main');
+        mainWrap.insertBefore(filterTemp.firstChild, mainEl);
+      }
+    }
+    // Reset active filters
+    activeFilters = { status: 'all', priority: 'all', date: 'all' };
+    if (data.filters) {
+      if (data.filters.status) activeFilters.status = data.filters.status;
+      if (data.filters.priority) activeFilters.priority = data.filters.priority;
+      if (data.filters.date) activeFilters.date = data.filters.date;
+    }
+  }
+
   // Update main content — noteHTML is plugin-generated trusted HTML
   // (all user content goes through esc() on the plugin side)
   var main = document.getElementById('dnMain');
@@ -305,6 +327,11 @@ function handleNoteLoaded(data) {
   }
 
   setupScrollSpy();
+
+  // Apply filters if any are active
+  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all') {
+    applyFilters();
+  }
 }
 
 // ============================================

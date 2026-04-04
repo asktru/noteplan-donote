@@ -685,7 +685,36 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
   return html;
 }
 
-function buildFilterBar(filters) {
+/**
+ * Analyze note content for task statistics to determine which filters to show.
+ */
+function getTaskStats(content) {
+  var stats = { hasTasks: false, hasCompleted: false, hasCancelled: false, hasPriority: false, hasDated: false };
+  if (!content) return stats;
+  var lines = content.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var t = lines[i].trimStart();
+    // Check if this is a task or checklist line
+    var isTask = /^[-*+]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*[]/.test(t) || /^\+\s+[^[]/.test(t);
+    if (!isTask) continue;
+    stats.hasTasks = true;
+    if (/\[x\]/.test(t)) stats.hasCompleted = true;
+    if (/\[-\]/.test(t)) stats.hasCancelled = true;
+    if (/^[-*+]\s+(?:\[[ x\-]\]\s+)?!{1,3}\s/.test(t)) stats.hasPriority = true;
+    if (/>\d{4}-\d{2}-\d{2}/.test(t) || />\d{4}-W\d{2}/.test(t) || />today/.test(t)) stats.hasDated = true;
+  }
+  return stats;
+}
+
+function buildFilterBar(filters, stats) {
+  if (!stats || !stats.hasTasks) return '';
+
+  var showStatus = stats.hasCompleted || stats.hasCancelled;
+  var showPriority = stats.hasPriority;
+  var showDate = stats.hasDated;
+
+  if (!showStatus && !showPriority && !showDate) return '';
+
   var f = filters || {};
   var statusVal = f.status || 'all';
   var priVal = f.priority || 'all';
@@ -700,34 +729,40 @@ function buildFilterBar(filters) {
   }
 
   var html = '<div class="dn-filter-bar" id="dnFilterBar">';
-  html += '<div class="dn-filter-group">';
-  html += '<span class="dn-filter-label">Status</span>';
-  html += btn('status', 'all', 'All');
-  html += btn('status', 'open', 'Open');
-  html += btn('status', 'done', 'Done');
-  html += btn('status', 'cancelled', 'Cancelled');
-  html += '</div>';
-  html += '<div class="dn-filter-group">';
-  html += '<span class="dn-filter-label">Priority</span>';
-  html += btn('priority', 'all', 'All');
-  html += btn('priority', 'high', '!!!');
-  html += btn('priority', 'med+', '!! +');
-  html += btn('priority', 'any', 'Any');
-  html += btn('priority', 'none', 'None');
-  html += '</div>';
-  html += '<div class="dn-filter-group">';
-  html += '<span class="dn-filter-label">Date</span>';
-  html += btn('date', 'all', 'All');
-  html += btn('date', 'nodate', 'No date');
-  html += btn('date', 'overdue', 'Overdue');
-  html += btn('date', 'today', 'Today');
-  html += btn('date', 'overdue+today', 'Overdue + Today');
-  html += '</div>';
+  if (showStatus) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Status</span>';
+    html += btn('status', 'all', 'All');
+    html += btn('status', 'open', 'Open');
+    html += btn('status', 'done', 'Done');
+    if (stats.hasCancelled) html += btn('status', 'cancelled', 'Cancelled');
+    html += '</div>';
+  }
+  if (showPriority) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Priority</span>';
+    html += btn('priority', 'all', 'All');
+    html += btn('priority', 'high', '!!!');
+    html += btn('priority', 'med+', '!! +');
+    html += btn('priority', 'any', 'Any');
+    html += btn('priority', 'none', 'None');
+    html += '</div>';
+  }
+  if (showDate) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Date</span>';
+    html += btn('date', 'all', 'All');
+    html += btn('date', 'nodate', 'No date');
+    html += btn('date', 'overdue', 'Overdue');
+    html += btn('date', 'today', 'Today');
+    html += btn('date', 'overdue+today', 'Overdue + Today');
+    html += '</div>';
+  }
   html += '</div>';
   return html;
 }
 
-function buildMainContent(noteHTML, filters) {
+function buildMainContent(noteHTML, filters, taskStats) {
   var html = '<div class="dn-main-wrap">';
   if (!noteHTML) {
     html += '<div class="dn-main" id="dnMain">';
@@ -737,10 +772,7 @@ function buildMainContent(noteHTML, filters) {
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
     html += '</div></div>';
   } else {
-    // Only show filter bar if note has tasks/checklists
-    if (noteHTML.indexOf('dn-task') >= 0) {
-      html += buildFilterBar(filters);
-    }
+    html += buildFilterBar(filters, taskStats);
     html += '<div class="dn-main" id="dnMain">';
     html += '<div class="dn-content">' + noteHTML + '</div>';
     html += '</div>';
@@ -811,7 +843,7 @@ function buildRightSidebar(headings, metadata, selectedFilename, isPinned) {
   return html;
 }
 
-function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, metadata, filters) {
+function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, metadata, filters, taskStats) {
   var isPinned = false;
   for (var pi = 0; pi < pinnedNotes.length; pi++) {
     if (pinnedNotes[pi].filename === selectedFilename) { isPinned = true; break; }
@@ -821,7 +853,7 @@ function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, m
   html += '<button class="dn-mobile-toggle dn-right-toggle" data-action="toggleRight"><i class="fa-solid fa-list-ul"></i></button>';
   html += buildLeftSidebar(pinnedNotes, selectedFilename);
   html += '<div class="dn-left-backdrop" data-action="toggleLeft"></div>';
-  html += buildMainContent(noteHTML, filters);
+  html += buildMainContent(noteHTML, filters, taskStats);
   html += buildRightSidebar(headings, metadata, selectedFilename, isPinned);
   html += '<div class="dn-right-backdrop" data-action="toggleRight"></div>';
   html += '</div>';
@@ -1325,11 +1357,14 @@ async function showDonote(selectedFilename) {
     var headings = [];
     var metadata = {};
     var filters = {};
+    var taskStats = {};
+    var noteContent = '';
 
     if (filename) {
       var note = getNoteByFilename(filename);
       if (note) {
-        var content = note.content || '';
+        noteContent = note.content || '';
+        var content = noteContent;
         var parsed = parseFrontmatter(content);
 
         noteHTML = renderNoteToHTML(content, filename);
@@ -1347,7 +1382,8 @@ async function showDonote(selectedFilename) {
       }
     }
 
-    var bodyContent = buildDashboardHTML(pinnedNotes, filename, noteHTML, headings, metadata, filters);
+    taskStats = getTaskStats(noteContent);
+    var bodyContent = buildDashboardHTML(pinnedNotes, filename, noteHTML, headings, metadata, filters, taskStats);
     var fullHTML = buildFullHTML(bodyContent);
 
     await CommandBar.onMainThread();
@@ -1424,12 +1460,22 @@ async function onMessageFromHTMLView(actionType, data) {
               if (pinnedList[pci].filename === msg.filename) { noteIsPinned = true; break; }
             }
 
+            // Build filter bar for this note
+            var selStats = getTaskStats(content);
+            var selFilters = {};
+            if (parsed.frontmatter['dn-filter-status']) selFilters.status = parsed.frontmatter['dn-filter-status'];
+            if (parsed.frontmatter['dn-filter-priority']) selFilters.priority = parsed.frontmatter['dn-filter-priority'];
+            if (parsed.frontmatter['dn-filter-date']) selFilters.date = parsed.frontmatter['dn-filter-date'];
+            var filterBarHTML = buildFilterBar(selFilters, selStats);
+
             await sendToHTMLWindow(WINDOW_ID, 'NOTE_LOADED', {
               filename: msg.filename,
               noteHTML: noteHTML,
               headings: headings,
               metadata: metadata,
               isPinned: noteIsPinned,
+              filterBarHTML: filterBarHTML,
+              filters: selFilters,
             });
           }
         }
