@@ -574,10 +574,19 @@ function renderNoteToHTML(content, noteFilename) {
       continue;
     }
 
-    // --- Tasks and checklists ---
+    // --- Tasks, checklists, and bullet lists (with nesting support) ---
     var trimmed = line.trimStart();
-    var indent = line.length - trimmed.length;
-    var indentClass = indent >= 4 ? ' dn-indent-2' : indent >= 2 ? ' dn-indent-1' : '';
+    // Count tabs for indent level (each tab = 1 level)
+    var tabCount = 0;
+    for (var tc = 0; tc < line.length; tc++) {
+      if (line[tc] === '\t') tabCount++;
+      else if (line[tc] === ' ') { /* spaces: 2-4 spaces = 1 level */ }
+      else break;
+    }
+    // Also count space-based indentation as fallback
+    var spaceIndent = line.length - trimmed.length;
+    var indentLevel = tabCount > 0 ? tabCount : Math.floor(spaceIndent / 2);
+    var indentClass = indentLevel > 0 ? ' dn-indent-' + Math.min(indentLevel, 6) : '';
 
     // Checklist with brackets: + [ ], + [x], + [-]
     var checklistMatch = trimmed.match(/^\+\s+\[([x \-])\]\s+(.*)/);
@@ -621,23 +630,19 @@ function renderNoteToHTML(content, noteFilename) {
       continue;
     }
 
-    // --- Bullet lists: - text ---
+    // --- Bullet lists: - text (rendered as individual items with indentation) ---
     var bulletMatch = trimmed.match(/^-\s+(.+)/);
     if (bulletMatch) {
-      if (inList && listType !== 'ul') flushList();
-      inList = true;
-      listType = 'ul';
-      listItems.push(bulletMatch[1]);
+      if (inList) flushList();
+      html += '<div class="dn-bullet' + indentClass + '"><span class="dn-bullet-dot"></span><span class="dn-bullet-text">' + renderInline(bulletMatch[1]) + '</span></div>';
       continue;
     }
 
     // --- Numbered lists: 1. text ---
-    var numMatch = trimmed.match(/^\d+\.\s+(.+)/);
+    var numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
     if (numMatch) {
-      if (inList && listType !== 'ol') flushList();
-      inList = true;
-      listType = 'ol';
-      listItems.push(numMatch[1]);
+      if (inList) flushList();
+      html += '<div class="dn-bullet dn-numbered' + indentClass + '"><span class="dn-num-marker">' + numMatch[1] + '.</span><span class="dn-bullet-text">' + renderInline(numMatch[2]) + '</span></div>';
       continue;
     }
     if (inList) flushList();
@@ -1026,8 +1031,12 @@ function getInlineCSS() {
 '}\n' +
 '.dn-task.dn-done { opacity: 0.5; }\n' +
 '.dn-task.dn-done .dn-task-text { text-decoration: line-through; }\n' +
-'.dn-task.dn-indent-1 { padding-left: 20px; }\n' +
-'.dn-task.dn-indent-2 { padding-left: 40px; }\n' +
+'.dn-indent-1 { padding-left: 24px; }\n' +
+'.dn-indent-2 { padding-left: 48px; }\n' +
+'.dn-indent-3 { padding-left: 72px; }\n' +
+'.dn-indent-4 { padding-left: 96px; }\n' +
+'.dn-indent-5 { padding-left: 120px; }\n' +
+'.dn-indent-6 { padding-left: 144px; }\n' +
 '.dn-cb { flex-shrink: 0; font-size: 14px; color: var(--dn-text-faint); cursor: pointer; position: relative; top: 1px; }\n' +
 '.dn-cb:hover { color: var(--dn-green); }\n' +
 '.dn-cb.done { color: var(--dn-green); }\n' +
@@ -1149,9 +1158,20 @@ function getInlineCSS() {
 '.dn-filter-btn:hover { background: var(--dn-border); color: var(--dn-text); }\n' +
 '.dn-filter-btn.active { background: var(--dn-accent-soft); color: var(--dn-accent); font-weight: 600; }\n' +
 
-/* Lists */
-'.dn-list { margin: 6px 0; padding-left: 24px; }\n' +
-'.dn-list li { margin: 3px 0; }\n' +
+/* Bullet items */
+'.dn-bullet {\n' +
+'  display: flex; align-items: baseline; gap: 8px;\n' +
+'  padding: 2px 0; line-height: 1.5;\n' +
+'}\n' +
+'.dn-bullet-dot {\n' +
+'  flex-shrink: 0; width: 5px; height: 5px; border-radius: 50%;\n' +
+'  background: var(--dn-text-faint); position: relative; top: 1px;\n' +
+'}\n' +
+'.dn-bullet-text { flex: 1; min-width: 0; }\n' +
+'.dn-num-marker {\n' +
+'  flex-shrink: 0; font-size: 13px; color: var(--dn-text-muted);\n' +
+'  min-width: 18px; text-align: right;\n' +
+'}\n' +
 
 /* Blockquotes */
 '.dn-blockquote {\n' +
