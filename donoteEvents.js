@@ -209,6 +209,7 @@ function handleNoteLoaded(data) {
   // Track current note and reset sync state
   currentNoteFilename = data.filename || '';
   syncEditorEnabled = false;
+  document.body.classList.remove('dn-synced');
 
   // Update filter bar
   var mainWrap = document.querySelector('.dn-main-wrap');
@@ -768,6 +769,7 @@ document.addEventListener('DOMContentLoaded', function() {
           if (syncEditorEnabled) {
             // Disable sync and close split view
             syncEditorEnabled = false;
+            document.body.classList.remove('dn-synced');
             target.classList.remove('active');
             var syncIcon = target.querySelector('i');
             if (syncIcon) syncIcon.className = 'fa-solid fa-arrow-up-right-from-square';
@@ -776,6 +778,7 @@ document.addEventListener('DOMContentLoaded', function() {
           } else {
             // Enable sync — open note in split view
             syncEditorEnabled = true;
+            document.body.classList.add('dn-synced');
             target.classList.add('active');
             var syncIcon2 = target.querySelector('i');
             if (syncIcon2) syncIcon2.className = 'fa-solid fa-link';

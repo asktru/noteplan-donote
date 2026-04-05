@@ -1326,9 +1326,11 @@ function getInlineCSS() {
 '.dn-mobile-toggle {\n' +
 '  display: none; position: fixed; top: 8px; z-index: 50;\n' +
 '  width: 36px; height: 36px; border-radius: var(--dn-radius-sm);\n' +
-'  border: 1px solid var(--dn-border); background: var(--dn-bg-card);\n' +
+'  border: 1px solid var(--dn-border);\n' +
+'  background: color-mix(in srgb, var(--dn-bg-card) 85%, transparent);\n' +
+'  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);\n' +
 '  color: var(--dn-text-muted); cursor: pointer; align-items: center; justify-content: center;\n' +
-'  font-size: 14px;\n' +
+'  font-size: 14px; box-shadow: 0 2px 8px color-mix(in srgb, black 15%, transparent);\n' +
 '}\n' +
 '.dn-left-toggle { left: 8px; }\n' +
 '.dn-right-toggle { right: 8px; }\n' +
@@ -1355,6 +1357,17 @@ function getInlineCSS() {
 '  .dn-right.open { transform: translateX(0); box-shadow: -4px 0 24px color-mix(in srgb, black 25%, transparent); }\n' +
 '  .dn-right-backdrop.open { display: block; }\n' +
 '  .dn-main { padding: 50px 16px 60px; }\n' +
+'}\n' +
+
+/* Ultra-narrow synced mode: show TOC full-width, hide content */
+'@media (max-width: 500px) {\n' +
+'  body.dn-synced .dn-main-wrap { display: none; }\n' +
+'  body.dn-synced .dn-right {\n' +
+'    position: static; width: 100%; transform: none;\n' +
+'    flex: 1; padding: 12px 16px; overflow-y: auto;\n' +
+'  }\n' +
+'  body.dn-synced .dn-right-backdrop { display: none; }\n' +
+'  body.dn-synced .dn-mobile-toggle.dn-right-toggle { display: none; }\n' +
 '}\n';
 }
 
