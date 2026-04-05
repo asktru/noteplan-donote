@@ -576,16 +576,16 @@ function renderNoteToHTML(content, noteFilename) {
 
     // --- Tasks, checklists, and bullet lists (with nesting support) ---
     var trimmed = line.trimStart();
-    // Count tabs for indent level (each tab = 1 level)
+    // Count leading whitespace for indent level
     var tabCount = 0;
+    var spaceCount = 0;
     for (var tc = 0; tc < line.length; tc++) {
       if (line[tc] === '\t') tabCount++;
-      else if (line[tc] === ' ') { /* spaces: 2-4 spaces = 1 level */ }
+      else if (line[tc] === ' ') spaceCount++;
       else break;
     }
-    // Also count space-based indentation as fallback
-    var spaceIndent = line.length - trimmed.length;
-    var indentLevel = tabCount > 0 ? tabCount : Math.floor(spaceIndent / 2);
+    // Tabs take priority; fall back to spaces (every 2-4 spaces = 1 level)
+    var indentLevel = tabCount > 0 ? tabCount : Math.floor(spaceCount / 2);
     var indentClass = indentLevel > 0 ? ' dn-indent-' + Math.min(indentLevel, 6) : '';
 
     // Checklist with brackets: + [ ], + [x], + [-]
@@ -1027,7 +1027,7 @@ function getInlineCSS() {
 /* Tasks */
 '.dn-task {\n' +
 '  display: flex; align-items: baseline; gap: 6px;\n' +
-'  padding: 3px 0; line-height: 1.5;\n' +
+'  padding-top: 3px; padding-bottom: 3px; line-height: 1.5;\n' +
 '}\n' +
 '.dn-task.dn-done { opacity: 0.5; }\n' +
 '.dn-task.dn-done .dn-task-text { text-decoration: line-through; }\n' +
@@ -1161,11 +1161,11 @@ function getInlineCSS() {
 /* Bullet items */
 '.dn-bullet {\n' +
 '  display: flex; align-items: baseline; gap: 8px;\n' +
-'  padding: 2px 0; line-height: 1.5;\n' +
+'  padding-top: 2px; padding-bottom: 2px; line-height: 1.5;\n' +
 '}\n' +
 '.dn-bullet-dot {\n' +
 '  flex-shrink: 0; width: 5px; height: 5px; border-radius: 50%;\n' +
-'  background: var(--dn-text-faint); position: relative; top: 1px;\n' +
+'  background: var(--dn-text-faint); position: relative; top: -2px;\n' +
 '}\n' +
 '.dn-bullet-text { flex: 1; min-width: 0; }\n' +
 '.dn-num-marker {\n' +
