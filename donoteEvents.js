@@ -3,6 +3,9 @@
 
 /* global sendMessageToPlugin */
 
+var syncEditorEnabled = false;
+var currentNoteFilename = '';
+
 // ============================================
 // PLUGIN MESSAGE HANDLER
 // ============================================
@@ -203,6 +206,10 @@ function handleNoteLoaded(data) {
     items[i].classList.toggle('active', items[i].dataset.filename === data.filename);
   }
 
+  // Track current note and reset sync state
+  currentNoteFilename = data.filename || '';
+  syncEditorEnabled = false;
+
   // Update filter bar
   var mainWrap = document.querySelector('.dn-main-wrap');
   if (mainWrap) {
@@ -254,11 +261,11 @@ function handleNoteLoaded(data) {
       var actionsDiv = document.createElement('div');
       actionsDiv.className = 'dn-right-actions';
 
-      var openBtn = document.createElement('a');
+      var openBtn = document.createElement('button');
       openBtn.className = 'dn-right-action-btn';
-      openBtn.dataset.action = 'openNoteInEditor';
+      openBtn.dataset.action = 'toggleEditorSync';
       openBtn.dataset.filename = data.filename;
-      openBtn.title = 'Open in split view';
+      openBtn.title = 'Open in split view and sync TOC';
       var openIcon = document.createElement('i');
       openIcon.className = 'fa-solid fa-arrow-up-right-from-square';
       openBtn.appendChild(openIcon);
@@ -350,6 +357,7 @@ function handleNoteLoaded(data) {
         btn.className = 'dn-toc-item dn-toc-level-' + headings[h].level;
         btn.dataset.action = 'scrollToHeading';
         btn.dataset.headingId = headings[h].id;
+        btn.dataset.charOffset = headings[h].charOffset || '0';
         btn.textContent = headings[h].text;
         tocList.appendChild(btn);
       }
@@ -674,6 +682,12 @@ function showToast(message) {
 document.addEventListener('DOMContentLoaded', function() {
   setupScrollSpy();
 
+  // Init current note filename from active sidebar item
+  var activeNoteItem = document.querySelector('.dn-note-item.active');
+  if (activeNoteItem) {
+    currentNoteFilename = activeNoteItem.dataset.filename || '';
+  }
+
   // Init filters from active buttons
   document.querySelectorAll('.dn-filter-btn.active').forEach(function(b) {
     activeFilters[b.dataset.group] = b.dataset.value;
@@ -699,6 +713,14 @@ document.addEventListener('DOMContentLoaded', function() {
         var mainEl = document.getElementById('dnMain');
         if (heading && mainEl) {
           mainEl.scrollTo({ top: heading.offsetTop - 20, behavior: 'smooth' });
+        }
+        // Sync with editor if note is open in split view
+        if (syncEditorEnabled && currentNoteFilename) {
+          var charOff = parseInt(target.dataset.charOffset || '0');
+          sendMessageToPlugin('syncEditorToHeading', JSON.stringify({
+            filename: currentNoteFilename,
+            charOffset: charOff,
+          }));
         }
         break;
 
@@ -741,9 +763,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         break;
 
-      case 'openNoteInEditor':
+      case 'toggleEditorSync':
         if (target.dataset.filename) {
-          sendMessageToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
+          if (syncEditorEnabled) {
+            // Disable sync and close split view
+            syncEditorEnabled = false;
+            target.classList.remove('active');
+            var syncIcon = target.querySelector('i');
+            if (syncIcon) syncIcon.className = 'fa-solid fa-arrow-up-right-from-square';
+            target.lastChild.textContent = ' Open';
+            sendMessageToPlugin('closeSplitView', JSON.stringify({ filename: target.dataset.filename }));
+          } else {
+            // Enable sync — open note in split view
+            syncEditorEnabled = true;
+            target.classList.add('active');
+            var syncIcon2 = target.querySelector('i');
+            if (syncIcon2) syncIcon2.className = 'fa-solid fa-link';
+            target.lastChild.textContent = ' Synced';
+            sendMessageToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
+          }
         }
         break;
 

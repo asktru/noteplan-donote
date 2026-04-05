@@ -253,28 +253,33 @@ function getNoteByFilename(filename) {
 // HEADING EXTRACTION (for TOC)
 // ============================================
 
-function extractHeadings(body) {
+function extractHeadings(body, fullContent) {
   var lines = body.split('\n');
   var headings = [];
   var inCodeBlock = false;
   var inFrontmatter = false;
 
+  // Calculate character offset of body within full content
+  var bodyOffset = fullContent ? fullContent.indexOf(body) : 0;
+  if (bodyOffset < 0) bodyOffset = 0;
+  var charPos = 0;
+
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
-    if (i === 0 && line.trim() === '---') { inFrontmatter = true; continue; }
-    if (inFrontmatter) { if (line.trim() === '---') inFrontmatter = false; continue; }
-    if (line.trim().startsWith('```')) { inCodeBlock = !inCodeBlock; continue; }
-    if (inCodeBlock) continue;
+    if (i === 0 && line.trim() === '---') { inFrontmatter = true; charPos += line.length + 1; continue; }
+    if (inFrontmatter) { if (line.trim() === '---') inFrontmatter = false; charPos += line.length + 1; continue; }
+    if (line.trim().startsWith('```')) { inCodeBlock = !inCodeBlock; charPos += line.length + 1; continue; }
+    if (inCodeBlock) { charPos += line.length + 1; continue; }
 
     var headingMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (headingMatch) {
       var level = headingMatch[1].length;
       var text = headingMatch[2].trim();
-      // Strip trailing markers/tags for clean display
-      var cleanText = text.replace(/\s*…$/, ''); // collapsed heading indicator
+      var cleanText = text.replace(/\s*…$/, '');
       var id = 'heading-' + headings.length;
-      headings.push({ level: level, text: cleanText, id: id });
+      headings.push({ level: level, text: cleanText, id: id, charOffset: bodyOffset + charPos });
     }
+    charPos += line.length + 1;
   }
   return headings;
 }
@@ -792,8 +797,8 @@ function buildRightSidebar(headings, metadata, selectedFilename, isPinned) {
   // Note action buttons at top
   if (selectedFilename) {
     html += '<div class="dn-right-actions">';
-    html += '<a class="dn-right-action-btn" data-action="openNoteInEditor" data-filename="' + esc(selectedFilename) + '" title="Open in split view">';
-    html += '<i class="fa-solid fa-arrow-up-right-from-square"></i> Open</a>';
+    html += '<button class="dn-right-action-btn" data-action="toggleEditorSync" data-filename="' + esc(selectedFilename) + '" title="Open in split view and sync TOC">';
+    html += '<i class="fa-solid fa-arrow-up-right-from-square"></i> Open</button>';
     html += '<button class="dn-right-action-btn' + (isPinned ? ' active' : '') + '" data-action="togglePinFromViewer" data-filename="' + esc(selectedFilename) + '" title="' + (isPinned ? 'Unpin' : 'Pin') + '">';
     html += '<i class="fa-solid fa-thumbtack"></i> ' + (isPinned ? 'Unpin' : 'Pin') + '</button>';
     html += '</div>';
@@ -837,7 +842,7 @@ function buildRightSidebar(headings, metadata, selectedFilename, isPinned) {
     html += '<div class="dn-toc-list">';
     for (var h = 0; h < headings.length; h++) {
       var heading = headings[h];
-      html += '<button class="dn-toc-item dn-toc-level-' + heading.level + '" data-action="scrollToHeading" data-heading-id="' + esc(heading.id) + '">';
+      html += '<button class="dn-toc-item dn-toc-level-' + heading.level + '" data-action="scrollToHeading" data-heading-id="' + esc(heading.id) + '" data-char-offset="' + (heading.charOffset || 0) + '">';
       html += esc(heading.text);
       html += '</button>';
     }
@@ -1333,7 +1338,7 @@ function getInlineCSS() {
 '}\n' +
 
 /* Mobile */
-'@media (max-width: 700px) {\n' +
+'@media (max-width: 900px) {\n' +
 '  .dn-mobile-toggle { display: flex; }\n' +
 '  .dn-left {\n' +
 '    position: fixed; left: 0; top: 0; bottom: 0; z-index: 100;\n' +
@@ -1388,7 +1393,7 @@ async function showDonote(selectedFilename) {
         var parsed = parseFrontmatter(content);
 
         noteHTML = renderNoteToHTML(content, filename);
-        headings = extractHeadings(parsed.body);
+        headings = extractHeadings(parsed.body, content);
 
         // Extract metadata
         if (parsed.frontmatter.date) metadata.date = parsed.frontmatter.date;
@@ -1497,7 +1502,7 @@ async function onMessageFromHTMLView(actionType, data) {
             var content = note.content || '';
             var parsed = parseFrontmatter(content);
             var noteHTML = renderNoteToHTML(content, msg.filename);
-            var headings = extractHeadings(parsed.body);
+            var headings = extractHeadings(parsed.body, content);
             var metadata = {};
             if (parsed.frontmatter.date) metadata.date = parsed.frontmatter.date;
             if (parsed.frontmatter.attendees) metadata.attendees = parsed.frontmatter.attendees;
@@ -1710,14 +1715,41 @@ async function onMessageFromHTMLView(actionType, data) {
       case 'openNoteInEditor':
         if (msg.filename) {
           await CommandBar.onMainThread();
-          // Open in split view
-          var noteTitle = '';
           var oNote = getNoteByFilename(msg.filename);
-          if (oNote) noteTitle = oNote.title || '';
+          var noteTitle = oNote ? (oNote.title || '') : '';
           if (noteTitle) {
-            NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(noteTitle) + '&splitView=yes');
+            NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(noteTitle) + '&splitView=yes&reuseSplitView=yes');
           } else {
             Editor.openNoteByFilename(msg.filename);
+          }
+        }
+        break;
+
+      case 'closeSplitView':
+        if (msg.filename) {
+          await CommandBar.onMainThread();
+          try {
+            var editors = NotePlan.editors;
+            for (var ei = 0; ei < editors.length; ei++) {
+              var ed = editors[ei];
+              if (ed.note && ed.note.filename === msg.filename && ed !== Editor) {
+                ed.close();
+                break;
+              }
+            }
+          } catch (closeErr) {
+            console.log('Donote: could not close split view: ' + String(closeErr));
+          }
+        }
+        break;
+
+      case 'syncEditorToHeading':
+        if (msg.filename && msg.charOffset !== undefined) {
+          await CommandBar.onMainThread();
+          var syncNote = getNoteByFilename(msg.filename);
+          var syncTitle = syncNote ? (syncNote.title || '') : '';
+          if (syncTitle) {
+            NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(syncTitle) + '&splitView=yes&reuseSplitView=yes&highlightStart=' + msg.charOffset + '&highlightLength=0');
           }
         }
         break;
