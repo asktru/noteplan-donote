@@ -392,38 +392,17 @@ function handleNoteLoaded(data) {
 // ============================================
 
 function toggleSectionVisibility(heading, collapsed) {
-  var level = parseInt(heading.dataset.level);
-  var sibling = heading.nextElementSibling;
-  while (sibling) {
-    if (sibling.classList.contains('dn-heading')) {
-      var sibLevel = parseInt(sibling.dataset.level);
-      if (sibLevel <= level) break;
-    }
-    if (collapsed) {
-      sibling.classList.add('dn-section-hidden');
-    } else {
-      sibling.classList.remove('dn-section-hidden');
-      // If expanding and we hit a collapsed sub-heading, skip past its content
-      if (sibling.classList.contains('dn-heading') && sibling.dataset.collapsed === 'true') {
-        var subLevel = parseInt(sibling.dataset.level);
-        var next = sibling.nextElementSibling;
-        while (next) {
-          if (next.classList.contains('dn-heading') && parseInt(next.dataset.level) <= subLevel) break;
-          next = next.nextElementSibling;
-        }
-        sibling = next;
-        continue;
-      }
-    }
-    sibling = sibling.nextElementSibling;
+  // Find the section-body div that follows this heading
+  var sectionBody = heading.nextElementSibling;
+  if (sectionBody && sectionBody.classList.contains('dn-section-body')) {
+    sectionBody.style.display = collapsed ? 'none' : '';
   }
 }
 
 function applySectionCollapse() {
-  var headings = document.querySelectorAll('.dn-heading[data-collapsed="true"]');
-  for (var i = 0; i < headings.length; i++) {
-    toggleSectionVisibility(headings[i], true);
-  }
+  // Section bodies for collapsed headings are already hidden via inline style="display:none"
+  // from the renderer, so no additional work needed on initial load.
+  // This function exists for any dynamic re-application if needed.
 }
 
 function updateTocCollapseState(headingId, collapsed) {

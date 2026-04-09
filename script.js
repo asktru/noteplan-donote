@@ -452,6 +452,7 @@ function renderNoteToHTML(content, noteFilename) {
   var listType = ''; // 'ul' or 'ol'
   var listItems = [];
   var headingIdx = 0;
+  var sectionStack = []; // stack of heading levels with open section-body divs
 
   function flushBlockquote() {
     if (bqLines.length > 0) {
@@ -543,13 +544,21 @@ function renderNoteToHTML(content, noteFilename) {
       var hText = hRawText.replace(/\s*…$/, '');
       var hId = 'heading-' + headingIdx++;
       var isSeparator = /^[-*_]{3,}$/.test(hText);
+      // Close section bodies for headings at same or higher level
+      while (sectionStack.length > 0 && sectionStack[sectionStack.length - 1] >= hLevel) {
+        html += '</div>';
+        sectionStack.pop();
+      }
       html += '<h' + hLevel + ' class="dn-heading dn-h' + hLevel + (hCollapsed ? ' dn-collapsed' : '') + '" id="' + hId + '" data-level="' + hLevel + '" data-collapsed="' + hCollapsed + '" data-line-index="' + (lineOffset + i) + '">';
       if (!isSeparator) {
         var chevronDir = hCollapsed ? 'right' : 'down';
-        html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span> ';
+        html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span>';
       }
       html += renderInline(hText);
       html += '</h' + hLevel + '>';
+      // Open section body for this heading's content
+      html += '<div class="dn-section-body" data-level="' + hLevel + '" data-for="' + hId + '"' + (hCollapsed ? ' style="display:none"' : '') + '>';
+      sectionStack.push(hLevel);
       continue;
     }
 
@@ -687,6 +696,12 @@ function renderNoteToHTML(content, noteFilename) {
   if (inBlockquote) flushBlockquote();
   if (inTable) flushTable();
   if (inList) flushList();
+
+  // Close remaining section bodies
+  while (sectionStack.length > 0) {
+    html += '</div>';
+    sectionStack.pop();
+  }
 
   return html;
 }
@@ -1025,7 +1040,7 @@ function getInlineCSS() {
 '.dn-content { max-width: none; }\n' +
 
 /* Headings */
-'.dn-heading { margin: 24px 0 8px; font-weight: 700; }\n' +
+'.dn-heading { margin: 24px 0 8px; font-weight: 700; position: relative; }\n' +
 '.dn-h1 { font-size: 26px; margin-top: 0; }\n' +
 '.dn-h2 { font-size: 22px; }\n' +
 '.dn-h3 { font-size: 18px; }\n' +
@@ -1033,14 +1048,17 @@ function getInlineCSS() {
 '.dn-h5 { font-size: 14px; }\n' +
 '.dn-h6 { font-size: 13px; color: var(--dn-text-muted); }\n' +
 
-/* Heading collapse */
+/* Section body indentation */
+'.dn-section-body { padding-left: 20px; }\n' +
+
+/* Heading collapse toggle */
 '.dn-collapse-toggle {\n' +
-'  display: inline-flex; align-items: center; justify-content: center;\n' +
-'  width: 16px; height: 16px; cursor: pointer; opacity: 0.3;\n' +
-'  transition: opacity 0.15s; font-size: 10px; vertical-align: middle;\n' +
-'  border-radius: 3px;\n' +
+'  position: absolute; left: -20px; top: 50%; transform: translateY(-50%);\n' +
+'  display: flex; align-items: center; justify-content: center;\n' +
+'  width: 20px; height: 20px; cursor: pointer; opacity: 0;\n' +
+'  transition: opacity 0.15s; font-size: 10px; border-radius: 3px;\n' +
 '}\n' +
-'.dn-heading:hover .dn-collapse-toggle { opacity: 0.7; }\n' +
+'.dn-heading:hover .dn-collapse-toggle { opacity: 0.6; }\n' +
 '.dn-collapse-toggle:hover { opacity: 1 !important; background: var(--dn-border); }\n' +
 '.dn-heading.dn-collapsed .dn-collapse-toggle { opacity: 0.5; }\n' +
 '.dn-heading.dn-collapsed::after {\n' +
