@@ -5,6 +5,7 @@
 
 var syncEditorEnabled = false;
 var currentNoteFilename = '';
+var currentFilterQuery = '';
 
 // ============================================
 // PLUGIN MESSAGE HANDLER
@@ -24,9 +25,6 @@ function onMessageFromPlugin(type, data) {
     case 'FILTER_BAR_UPDATED':
       handleFilterBarUpdated(data);
       break;
-    case 'FILTER_CHANGED':
-      handleFilterChanged(data);
-      break;
     case 'SHOW_TOAST':
       showToast(data.message);
       break;
@@ -37,32 +35,8 @@ function onMessageFromPlugin(type, data) {
 }
 
 function handleFilterBarUpdated(data) {
-  var mainWrap = document.querySelector('.dn-main-wrap');
-  if (!mainWrap) return;
-  var oldBar = mainWrap.querySelector('.dn-filter-bar');
-  var mainEl = mainWrap.querySelector('.dn-main');
-
-  if (data.filterBarHTML) {
-    var temp = document.createElement('div');
-    temp.insertAdjacentHTML('afterbegin', data.filterBarHTML);
-    if (temp.firstChild) {
-      if (oldBar) {
-        mainWrap.replaceChild(temp.firstChild, oldBar);
-      } else if (mainEl) {
-        mainWrap.insertBefore(temp.firstChild, mainEl);
-      }
-    }
-  } else if (oldBar) {
-    oldBar.remove();
-  }
-
-  // Restore filter state
-  if (data.filters) {
-    if (data.filters.status) activeFilters.status = data.filters.status;
-    if (data.filters.priority) activeFilters.priority = data.filters.priority;
-    if (data.filters.date) activeFilters.date = data.filters.date;
-    if (data.filters.type) activeFilters.type = data.filters.type;
-  }
+  if (data.filterQuery !== undefined) currentFilterQuery = data.filterQuery;
+  // Re-apply filters (filter bar input doesn't need rebuilding for task state changes)
   applyFilters();
 }
 
@@ -109,74 +83,246 @@ function handlePriorityChanged(data) {
       }
     }
   });
+  applyFilters();
 }
 
 // ============================================
 // FILTER LOGIC
 // ============================================
 
-var activeFilters = { status: 'all', priority: 'all', date: 'all', type: 'all' };
-
-function handleFilterChanged(data) {
-  activeFilters[data.group] = data.value;
-  // Update filter button states
-  var btns = document.querySelectorAll('.dn-filter-btn[data-group="' + data.group + '"]');
-  btns.forEach(function(b) { b.classList.toggle('active', b.dataset.value === data.value); });
-  applyFilters();
-}
+// ============================================
+// FILTER QUERY PARSER & EVALUATOR
+// ============================================
 
 function getTodayStr() {
   var d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
+function tokenizeFilter(input) {
+  var tokens = [];
+  var i = 0;
+  while (i < input.length) {
+    if (input[i] === ' ' || input[i] === '\t') { i++; continue; }
+    if (input[i] === '(') { tokens.push({ type: 'LPAREN' }); i++; continue; }
+    if (input[i] === ')') { tokens.push({ type: 'RPAREN' }); i++; continue; }
+    if (input[i] === '|') { tokens.push({ type: 'OR' }); i++; continue; }
+    if (input[i] === '&') { tokens.push({ type: 'AND' }); i++; continue; }
+
+    // Priority: !, !!, !!!
+    if (input[i] === '!') {
+      var count = 0;
+      while (i < input.length && input[i] === '!') { count++; i++; }
+      tokens.push({ type: 'PRIORITY', value: count });
+      continue;
+    }
+
+    // Mention: @word
+    if (input[i] === '@') {
+      i++;
+      var mWord = '';
+      while (i < input.length && input[i] !== ' ' && input[i] !== ')' && input[i] !== '|' && input[i] !== '&') {
+        mWord += input[i]; i++;
+      }
+      if (mWord) tokens.push({ type: 'MENTION', value: mWord });
+      continue;
+    }
+
+    // Tag: #word
+    if (input[i] === '#') {
+      var tag = '';
+      while (i < input.length && input[i] !== ' ' && input[i] !== ')' && input[i] !== '|' && input[i] !== '&') {
+        tag += input[i]; i++;
+      }
+      if (tag) tokens.push({ type: 'TAG', value: tag });
+      continue;
+    }
+
+    // Word — read until delimiter
+    var word = '';
+    while (i < input.length && input[i] !== ' ' && input[i] !== '(' && input[i] !== ')' && input[i] !== '|' && input[i] !== '&') {
+      word += input[i]; i++;
+    }
+
+    var lower = word.toLowerCase();
+    if (lower.startsWith('status:')) {
+      tokens.push({ type: 'STATUS', value: lower.substring(7).split(',').map(function(s) { return s.trim(); }).filter(Boolean) });
+    } else if (lower === 'open' || lower === 'done' || lower === 'canceled' || lower === 'cancelled') {
+      var sv = lower === 'canceled' ? 'cancelled' : lower;
+      tokens.push({ type: 'STATUS', value: [sv] });
+    } else if (lower === 'task' || lower === 'tasks') {
+      tokens.push({ type: 'TYPE', value: 'task' });
+    } else if (lower === 'checklist' || lower === 'checklists') {
+      tokens.push({ type: 'TYPE', value: 'checklist' });
+    } else if (lower === 'overdue' || lower === 'today' || lower === 'nodate' || lower === 'dated') {
+      tokens.push({ type: 'DATE', value: lower });
+    } else if (word) {
+      tokens.push({ type: 'TEXT', value: word });
+    }
+  }
+  return tokens;
+}
+
+function parseFilter(input) {
+  if (!input || !input.trim()) return null;
+  var tokens = tokenizeFilter(input);
+  if (tokens.length === 0) return null;
+  var pos = 0;
+
+  function peek() { return pos < tokens.length ? tokens[pos] : null; }
+  function next() { return tokens[pos++]; }
+
+  function parseOr() {
+    var left = parseAndExpr();
+    while (peek() && peek().type === 'OR') {
+      next();
+      var right = parseAndExpr();
+      left = { op: 'or', children: [left, right] };
+    }
+    return left;
+  }
+
+  function parseAndExpr() {
+    var terms = [parseTerm()];
+    while (peek() && peek().type !== 'OR' && peek().type !== 'RPAREN') {
+      if (peek().type === 'AND') next(); // consume optional &
+      if (!peek() || peek().type === 'OR' || peek().type === 'RPAREN') break;
+      terms.push(parseTerm());
+    }
+    return terms.length === 1 ? terms[0] : { op: 'and', children: terms };
+  }
+
+  function parseTerm() {
+    var t = peek();
+    if (t && t.type === 'LPAREN') {
+      next();
+      var expr = parseOr();
+      if (peek() && peek().type === 'RPAREN') next();
+      return expr;
+    }
+    return parseAtom();
+  }
+
+  function parseAtom() {
+    var t = next();
+    if (!t) return { op: 'true' };
+    switch (t.type) {
+      case 'STATUS': return { op: 'status', values: t.value };
+      case 'TYPE': return { op: 'type', value: t.value };
+      case 'PRIORITY': return { op: 'priority', value: t.value };
+      case 'MENTION': return { op: 'mention', value: t.value };
+      case 'TAG': return { op: 'tag', value: t.value };
+      case 'DATE': return { op: 'date', value: t.value };
+      case 'TEXT': return { op: 'text', value: t.value };
+      default: return { op: 'true' };
+    }
+  }
+
+  var ast = parseOr();
+
+  // Default: if no explicit status in the query, filter to open only
+  if (!hasNodeType(ast, 'status')) {
+    ast = { op: 'and', children: [{ op: 'status', values: ['open'] }, ast] };
+  }
+
+  return ast;
+}
+
+function hasNodeType(node, opType) {
+  if (!node) return false;
+  if (node.op === opType) return true;
+  if (node.children) {
+    for (var i = 0; i < node.children.length; i++) {
+      if (hasNodeType(node.children[i], opType)) return true;
+    }
+  }
+  return false;
+}
+
+function evalFilter(node, taskEl) {
+  if (!node) return true;
+  var i;
+  switch (node.op) {
+    case 'and':
+      for (i = 0; i < node.children.length; i++) {
+        if (!evalFilter(node.children[i], taskEl)) return false;
+      }
+      return true;
+    case 'or':
+      for (i = 0; i < node.children.length; i++) {
+        if (evalFilter(node.children[i], taskEl)) return true;
+      }
+      return false;
+    case 'status':
+      var status = taskEl.dataset.status || 'open';
+      return node.values.indexOf(status) >= 0;
+    case 'type':
+      return (taskEl.dataset.type || 'task') === node.value;
+    case 'priority':
+      return parseInt(taskEl.dataset.priority || '0') === node.value;
+    case 'mention':
+      var mText = (taskEl.querySelector('.dn-task-text') || taskEl).textContent;
+      return mText.toLowerCase().indexOf('@' + node.value.toLowerCase()) >= 0;
+    case 'tag':
+      var tText = (taskEl.querySelector('.dn-task-text') || taskEl).textContent;
+      return tText.toLowerCase().indexOf(node.value.toLowerCase()) >= 0;
+    case 'date':
+      var date = taskEl.dataset.date || '';
+      var today = getTodayStr();
+      if (node.value === 'nodate') return date === '';
+      if (node.value === 'dated') return date !== '';
+      if (node.value === 'overdue') return date !== '' && date < today;
+      if (node.value === 'today') return date === today;
+      return true;
+    case 'text':
+      var sText = (taskEl.querySelector('.dn-task-text') || taskEl).textContent;
+      return sText.toLowerCase().indexOf(node.value.toLowerCase()) >= 0;
+    case 'true':
+      return true;
+    default:
+      return true;
+  }
+}
+
 function applyFilters() {
   var tasks = document.querySelectorAll('.dn-task');
-  var today = getTodayStr();
+  if (!currentFilterQuery) {
+    tasks.forEach(function(t) { t.style.display = ''; });
+    return;
+  }
+  var ast = parseFilter(currentFilterQuery);
   tasks.forEach(function(t) {
-    var status = t.dataset.status || 'open';
-    var pri = parseInt(t.dataset.priority || '0');
-    var date = t.dataset.date || '';
-    var show = true;
-
-    // Status filter
-    if (activeFilters.status !== 'all') {
-      if (activeFilters.status === 'open' && status !== 'open') show = false;
-      if (activeFilters.status === 'done' && status !== 'done') show = false;
-      if (activeFilters.status === 'cancelled' && status !== 'cancelled') show = false;
-    }
-
-    // Priority filter
-    if (show && activeFilters.priority !== 'all') {
-      if (activeFilters.priority === 'high' && pri !== 3) show = false;
-      if (activeFilters.priority === 'med+' && pri < 2) show = false;
-      if (activeFilters.priority === 'any' && pri === 0) show = false;
-      if (activeFilters.priority === 'none' && pri !== 0) show = false;
-    }
-
-    // Date filter
-    if (show && activeFilters.date !== 'all') {
-      if (activeFilters.date === 'nodate' && date !== '') show = false;
-      if (activeFilters.date === 'overdue' && (date === '' || date >= today)) show = false;
-      if (activeFilters.date === 'today' && date !== today) show = false;
-      if (activeFilters.date === 'overdue+today' && (date === '' || date > today)) show = false;
-    }
-
-    // Type filter
-    if (show && activeFilters.type !== 'all') {
-      var itemType = t.dataset.type || 'task';
-      if (activeFilters.type === 'task' && itemType !== 'task') show = false;
-      if (activeFilters.type === 'checklist' && itemType !== 'checklist') show = false;
-    }
-
-    t.style.display = show ? '' : 'none';
+    t.style.display = evalFilter(ast, t) ? '' : 'none';
   });
 }
 
+var filterDebounceTimer = null;
+
+function handleFilterInput(value) {
+  currentFilterQuery = value;
+  var clearBtn = document.querySelector('.dn-filter-clear');
+  if (clearBtn) clearBtn.style.display = value ? '' : 'none';
+  if (filterDebounceTimer) clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = setTimeout(function() {
+    applyFilters();
+  }, 150);
+}
+
+function persistFilter() {
+  if (currentNoteFilename) {
+    sendMessageToPlugin('setFilterQuery', JSON.stringify({
+      filename: currentNoteFilename,
+      query: currentFilterQuery,
+    }));
+  }
+}
+
 function handleTaskToggled(data) {
-  // Find the task element by filename + lineIndex
   var tasks = document.querySelectorAll('.dn-task[data-filename="' + data.filename + '"][data-line-index="' + data.lineIndex + '"]');
   tasks.forEach(function(taskEl) {
+    // Update data-status for filter evaluation
+    taskEl.dataset.status = data.status;
+
     // Update status classes
     taskEl.classList.remove('dn-done', 'dn-cancelled');
     if (data.status === 'done') taskEl.classList.add('dn-done');
@@ -201,6 +347,7 @@ function handleTaskToggled(data) {
       }
     }
   });
+  applyFilters();
 }
 
 // ============================================
@@ -220,6 +367,7 @@ function handleNoteLoaded(data) {
   document.body.classList.remove('dn-synced');
 
   // Update filter bar
+  currentFilterQuery = data.filterQuery || '';
   var mainWrap = document.querySelector('.dn-main-wrap');
   if (mainWrap) {
     var oldFilterBar = mainWrap.querySelector('.dn-filter-bar');
@@ -231,14 +379,6 @@ function handleNoteLoaded(data) {
         var mainEl = mainWrap.querySelector('.dn-main');
         mainWrap.insertBefore(filterTemp.firstChild, mainEl);
       }
-    }
-    // Reset active filters
-    activeFilters = { status: 'all', priority: 'all', date: 'all', type: 'all' };
-    if (data.filters) {
-      if (data.filters.status) activeFilters.status = data.filters.status;
-      if (data.filters.priority) activeFilters.priority = data.filters.priority;
-      if (data.filters.date) activeFilters.date = data.filters.date;
-      if (data.filters.type) activeFilters.type = data.filters.type;
     }
   }
 
@@ -382,7 +522,7 @@ function handleNoteLoaded(data) {
   applySectionCollapse();
 
   // Apply filters if any are active
-  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all' || activeFilters.type !== 'all') {
+  if (currentFilterQuery) {
     applyFilters();
   }
 }
@@ -727,11 +867,10 @@ document.addEventListener('DOMContentLoaded', function() {
     currentNoteFilename = activeNoteItem.dataset.filename || '';
   }
 
-  // Init filters from active buttons
-  document.querySelectorAll('.dn-filter-btn.active').forEach(function(b) {
-    activeFilters[b.dataset.group] = b.dataset.value;
-  });
-  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all' || activeFilters.type !== 'all') {
+  // Init filter query from input
+  var initInput = document.getElementById('dnFilterInput');
+  if (initInput) currentFilterQuery = initInput.value || '';
+  if (currentFilterQuery) {
     applyFilters();
   }
 
@@ -880,17 +1019,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (scTask) showSchedulePicker(scTask);
         break;
 
-      case 'setFilter':
-        var group = target.dataset.group;
-        var value = target.dataset.value;
-        // Get filename from currently active note in sidebar
-        var activeNote = document.querySelector('.dn-note-item.active');
-        var filterFn = activeNote ? activeNote.dataset.filename : '';
-        sendMessageToPlugin('setFilter', JSON.stringify({
-          filename: filterFn,
-          group: group,
-          value: value,
-        }));
+      case 'clearFilter':
+        currentFilterQuery = '';
+        var cfInput = document.getElementById('dnFilterInput');
+        if (cfInput) cfInput.value = '';
+        var cfClear = document.querySelector('.dn-filter-clear');
+        if (cfClear) cfClear.style.display = 'none';
+        applyFilters();
+        persistFilter();
         break;
 
       case 'toggleLeft':
@@ -914,6 +1050,27 @@ document.addEventListener('DOMContentLoaded', function() {
     var attendees = e.target.closest('.dn-meta-attendees');
     if (attendees) {
       attendees.classList.toggle('expanded');
+    }
+  });
+
+  // Filter input: live filtering on typing
+  document.body.addEventListener('input', function(e) {
+    if (e.target.id === 'dnFilterInput') {
+      handleFilterInput(e.target.value);
+    }
+  });
+
+  // Persist filter on Enter or blur
+  document.body.addEventListener('keydown', function(e) {
+    if (e.target.id === 'dnFilterInput' && e.key === 'Enter') {
+      e.preventDefault();
+      e.target.blur();
+    }
+  });
+
+  document.body.addEventListener('focusout', function(e) {
+    if (e.target.id === 'dnFilterInput') {
+      persistFilter();
     }
   });
 
