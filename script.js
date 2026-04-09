@@ -276,8 +276,9 @@ function extractHeadings(body, fullContent) {
       var level = headingMatch[1].length;
       var text = headingMatch[2].trim();
       var cleanText = text.replace(/\s*…$/, '');
+      var isCollapsed = text !== cleanText;
       var id = 'heading-' + headings.length;
-      headings.push({ level: level, text: cleanText, id: id, charOffset: bodyOffset + charPos });
+      headings.push({ level: level, text: cleanText, id: id, charOffset: bodyOffset + charPos, collapsed: isCollapsed });
     }
     charPos += line.length + 1;
   }
@@ -410,8 +411,9 @@ function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent
   var priAttr = ' data-priority="' + priLevel + '"';
   var dateAttr = schedDate ? ' data-date="' + esc(schedDate) + '"' : '';
   var statusAttr = ' data-status="' + status + '"';
+  var typeAttr = ' data-type="' + (isChecklist ? 'checklist' : 'task') + '"';
 
-  var html = '<div class="dn-task' + statusClass + indentClass + '"' + fnAttr + lineAttr + priAttr + dateAttr + statusAttr + '>';
+  var html = '<div class="dn-task' + statusClass + indentClass + '"' + fnAttr + lineAttr + priAttr + dateAttr + statusAttr + typeAttr + '>';
   html += '<span class="dn-cb' + cbBase + cbDoneClass + '" data-action="toggleTask"><i class="' + cbIcon + '"></i></span>';
   html += priBadge;
   html += '<span class="dn-task-text">' + renderInline(displayContent) + '</span>';
@@ -536,9 +538,18 @@ function renderNoteToHTML(content, noteFilename) {
       if (inTable) flushTable();
       if (inList) flushList();
       var hLevel = headingMatch[1].length;
-      var hText = headingMatch[2].trim().replace(/\s*…$/, '');
+      var hRawText = headingMatch[2].trim();
+      var hCollapsed = hRawText.endsWith('…');
+      var hText = hRawText.replace(/\s*…$/, '');
       var hId = 'heading-' + headingIdx++;
-      html += '<h' + hLevel + ' class="dn-heading dn-h' + hLevel + '" id="' + hId + '">' + renderInline(hText) + '</h' + hLevel + '>';
+      var isSeparator = /^[-*_]{3,}$/.test(hText);
+      html += '<h' + hLevel + ' class="dn-heading dn-h' + hLevel + (hCollapsed ? ' dn-collapsed' : '') + '" id="' + hId + '" data-level="' + hLevel + '" data-collapsed="' + hCollapsed + '" data-line-index="' + (lineOffset + i) + '">';
+      if (!isSeparator) {
+        var chevronDir = hCollapsed ? 'right' : 'down';
+        html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span> ';
+      }
+      html += renderInline(hText);
+      html += '</h' + hLevel + '>';
       continue;
     }
 
@@ -712,15 +723,18 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
  * Analyze note content for task statistics to determine which filters to show.
  */
 function getTaskStats(content) {
-  var stats = { hasTasks: false, hasCompleted: false, hasCancelled: false, hasPriority: false, hasDated: false };
+  var stats = { hasTasks: false, hasCompleted: false, hasCancelled: false, hasPriority: false, hasDated: false, hasChecklists: false, hasRegularTasks: false };
   if (!content) return stats;
   var lines = content.split('\n');
   for (var i = 0; i < lines.length; i++) {
     var t = lines[i].trimStart();
     // Check if this is a task or checklist line (bracket or bare notation)
-    var isTask = /^[-*+]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*]/.test(t) || /^\+\s+/.test(t);
-    if (!isTask) continue;
+    var isChecklist = /^\+\s+/.test(t);
+    var isRegularTask = /^[-*]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*]/.test(t);
+    if (!isChecklist && !isRegularTask) continue;
     stats.hasTasks = true;
+    if (isChecklist) stats.hasChecklists = true;
+    if (isRegularTask) stats.hasRegularTasks = true;
     if (/\[x\]/.test(t) || /@done\(/.test(t)) stats.hasCompleted = true;
     if (/\[-\]/.test(t)) stats.hasCancelled = true;
     if (/^[-*+]\s+(?:\[[ x\-]\]\s+)?!{1,3}\s/.test(t)) stats.hasPriority = true;
@@ -735,23 +749,34 @@ function buildFilterBar(filters, stats) {
   var showStatus = stats.hasCompleted || stats.hasCancelled;
   var showPriority = stats.hasPriority;
   var showDate = stats.hasDated;
+  var showType = stats.hasChecklists && stats.hasRegularTasks;
 
-  if (!showStatus && !showPriority && !showDate) return '';
+  if (!showStatus && !showPriority && !showDate && !showType) return '';
 
   var f = filters || {};
   var statusVal = f.status || 'all';
   var priVal = f.priority || 'all';
   var dateVal = f.date || 'all';
+  var typeVal = f.type || 'all';
 
   function btn(group, value, label) {
     var active = '';
     if (group === 'status' && statusVal === value) active = ' active';
     if (group === 'priority' && priVal === value) active = ' active';
     if (group === 'date' && dateVal === value) active = ' active';
+    if (group === 'type' && typeVal === value) active = ' active';
     return '<button class="dn-filter-btn' + active + '" data-action="setFilter" data-group="' + group + '" data-value="' + value + '">' + label + '</button>';
   }
 
   var html = '<div class="dn-filter-bar" id="dnFilterBar">';
+  if (showType) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Type</span>';
+    html += btn('type', 'all', 'All');
+    html += btn('type', 'task', 'Tasks');
+    html += btn('type', 'checklist', 'Checklists');
+    html += '</div>';
+  }
   if (showStatus) {
     html += '<div class="dn-filter-group">';
     html += '<span class="dn-filter-label">Status</span>';
@@ -1007,6 +1032,22 @@ function getInlineCSS() {
 '.dn-h4 { font-size: 16px; }\n' +
 '.dn-h5 { font-size: 14px; }\n' +
 '.dn-h6 { font-size: 13px; color: var(--dn-text-muted); }\n' +
+
+/* Heading collapse */
+'.dn-collapse-toggle {\n' +
+'  display: inline-flex; align-items: center; justify-content: center;\n' +
+'  width: 16px; height: 16px; cursor: pointer; opacity: 0.3;\n' +
+'  transition: opacity 0.15s; font-size: 10px; vertical-align: middle;\n' +
+'  border-radius: 3px;\n' +
+'}\n' +
+'.dn-heading:hover .dn-collapse-toggle { opacity: 0.7; }\n' +
+'.dn-collapse-toggle:hover { opacity: 1 !important; background: var(--dn-border); }\n' +
+'.dn-heading.dn-collapsed .dn-collapse-toggle { opacity: 0.5; }\n' +
+'.dn-heading.dn-collapsed::after {\n' +
+'  content: "…"; color: var(--dn-text-faint); font-weight: 400; margin-left: 6px;\n' +
+'}\n' +
+'.dn-section-hidden { display: none !important; }\n' +
+'.dn-toc-item.dn-toc-collapsed { opacity: 0.45; }\n' +
 
 /* Paragraphs & text */
 '.dn-para { margin: 6px 0; }\n' +
@@ -1431,6 +1472,7 @@ async function showDonote(selectedFilename) {
         if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
         if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
         if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+        if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
       }
     }
 
@@ -1509,6 +1551,7 @@ async function sendFilterBarUpdate(filename) {
   if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
   if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
   if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+  if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
   var filterBarHTML = buildFilterBar(filters, stats);
   await sendToHTMLWindow(WINDOW_ID, 'FILTER_BAR_UPDATED', {
     filterBarHTML: filterBarHTML,
@@ -1548,6 +1591,7 @@ async function onMessageFromHTMLView(actionType, data) {
             if (parsed.frontmatter['dn-filter-status']) selFilters.status = parsed.frontmatter['dn-filter-status'];
             if (parsed.frontmatter['dn-filter-priority']) selFilters.priority = parsed.frontmatter['dn-filter-priority'];
             if (parsed.frontmatter['dn-filter-date']) selFilters.date = parsed.frontmatter['dn-filter-date'];
+            if (parsed.frontmatter['dn-filter-type']) selFilters.type = parsed.frontmatter['dn-filter-type'];
             var filterBarHTML = buildFilterBar(selFilters, selStats);
 
             await sendToHTMLWindow(WINDOW_ID, 'NOTE_LOADED', {
@@ -1777,6 +1821,29 @@ async function onMessageFromHTMLView(actionType, data) {
           var syncTitle = syncNote ? (syncNote.title || '') : '';
           if (syncTitle) {
             NotePlan.openURL('noteplan://x-callback-url/openNote?noteTitle=' + encodeURIComponent(syncTitle) + '&splitView=yes&reuseSplitView=yes&highlightStart=' + msg.charOffset + '&highlightLength=0');
+          }
+        }
+        break;
+
+      case 'toggleHeadingCollapse':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var hcNote = getNoteByFilename(msg.filename);
+          if (hcNote) {
+            var hcLine = parseInt(msg.lineIndex);
+            var hcParas = hcNote.paragraphs;
+            var hcPara = null;
+            for (var hci = 0; hci < hcParas.length; hci++) {
+              if (hcParas[hci].lineIndex === hcLine) { hcPara = hcParas[hci]; break; }
+            }
+            if (hcPara) {
+              var hcContent = hcPara.content || '';
+              if (hcContent.endsWith(' …') || hcContent.endsWith('…')) {
+                hcPara.content = hcContent.replace(/\s*…$/, '');
+              } else {
+                hcPara.content = hcContent.trimEnd() + ' …';
+              }
+              hcNote.updateParagraph(hcPara);
+            }
           }
         }
         break;

@@ -61,6 +61,7 @@ function handleFilterBarUpdated(data) {
     if (data.filters.status) activeFilters.status = data.filters.status;
     if (data.filters.priority) activeFilters.priority = data.filters.priority;
     if (data.filters.date) activeFilters.date = data.filters.date;
+    if (data.filters.type) activeFilters.type = data.filters.type;
   }
   applyFilters();
 }
@@ -114,7 +115,7 @@ function handlePriorityChanged(data) {
 // FILTER LOGIC
 // ============================================
 
-var activeFilters = { status: 'all', priority: 'all', date: 'all' };
+var activeFilters = { status: 'all', priority: 'all', date: 'all', type: 'all' };
 
 function handleFilterChanged(data) {
   activeFilters[data.group] = data.value;
@@ -159,6 +160,13 @@ function applyFilters() {
       if (activeFilters.date === 'overdue' && (date === '' || date >= today)) show = false;
       if (activeFilters.date === 'today' && date !== today) show = false;
       if (activeFilters.date === 'overdue+today' && (date === '' || date > today)) show = false;
+    }
+
+    // Type filter
+    if (show && activeFilters.type !== 'all') {
+      var itemType = t.dataset.type || 'task';
+      if (activeFilters.type === 'task' && itemType !== 'task') show = false;
+      if (activeFilters.type === 'checklist' && itemType !== 'checklist') show = false;
     }
 
     t.style.display = show ? '' : 'none';
@@ -225,11 +233,12 @@ function handleNoteLoaded(data) {
       }
     }
     // Reset active filters
-    activeFilters = { status: 'all', priority: 'all', date: 'all' };
+    activeFilters = { status: 'all', priority: 'all', date: 'all', type: 'all' };
     if (data.filters) {
       if (data.filters.status) activeFilters.status = data.filters.status;
       if (data.filters.priority) activeFilters.priority = data.filters.priority;
       if (data.filters.date) activeFilters.date = data.filters.date;
+      if (data.filters.type) activeFilters.type = data.filters.type;
     }
   }
 
@@ -355,7 +364,7 @@ function handleNoteLoaded(data) {
       tocList.className = 'dn-toc-list';
       for (var h = 0; h < headings.length; h++) {
         var btn = document.createElement('button');
-        btn.className = 'dn-toc-item dn-toc-level-' + headings[h].level;
+        btn.className = 'dn-toc-item dn-toc-level-' + headings[h].level + (headings[h].collapsed ? ' dn-toc-collapsed' : '');
         btn.dataset.action = 'scrollToHeading';
         btn.dataset.headingId = headings[h].id;
         btn.dataset.charOffset = headings[h].charOffset || '0';
@@ -369,9 +378,59 @@ function handleNoteLoaded(data) {
 
   setupScrollSpy();
 
+  // Apply initial heading collapse state
+  applySectionCollapse();
+
   // Apply filters if any are active
-  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all') {
+  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all' || activeFilters.type !== 'all') {
     applyFilters();
+  }
+}
+
+// ============================================
+// HEADING COLLAPSE
+// ============================================
+
+function toggleSectionVisibility(heading, collapsed) {
+  var level = parseInt(heading.dataset.level);
+  var sibling = heading.nextElementSibling;
+  while (sibling) {
+    if (sibling.classList.contains('dn-heading')) {
+      var sibLevel = parseInt(sibling.dataset.level);
+      if (sibLevel <= level) break;
+    }
+    if (collapsed) {
+      sibling.classList.add('dn-section-hidden');
+    } else {
+      sibling.classList.remove('dn-section-hidden');
+      // If expanding and we hit a collapsed sub-heading, skip past its content
+      if (sibling.classList.contains('dn-heading') && sibling.dataset.collapsed === 'true') {
+        var subLevel = parseInt(sibling.dataset.level);
+        var next = sibling.nextElementSibling;
+        while (next) {
+          if (next.classList.contains('dn-heading') && parseInt(next.dataset.level) <= subLevel) break;
+          next = next.nextElementSibling;
+        }
+        sibling = next;
+        continue;
+      }
+    }
+    sibling = sibling.nextElementSibling;
+  }
+}
+
+function applySectionCollapse() {
+  var headings = document.querySelectorAll('.dn-heading[data-collapsed="true"]');
+  for (var i = 0; i < headings.length; i++) {
+    toggleSectionVisibility(headings[i], true);
+  }
+}
+
+function updateTocCollapseState(headingId, collapsed) {
+  var tocItem = document.querySelector('.dn-toc-item[data-heading-id="' + headingId + '"]');
+  if (tocItem) {
+    if (collapsed) tocItem.classList.add('dn-toc-collapsed');
+    else tocItem.classList.remove('dn-toc-collapsed');
   }
 }
 
@@ -693,7 +752,7 @@ document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.dn-filter-btn.active').forEach(function(b) {
     activeFilters[b.dataset.group] = b.dataset.value;
   });
-  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all') {
+  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all' || activeFilters.type !== 'all') {
     applyFilters();
   }
 
@@ -706,6 +765,29 @@ document.addEventListener('DOMContentLoaded', function() {
     switch (action) {
       case 'selectNote':
         sendMessageToPlugin('selectNote', JSON.stringify({ filename: target.dataset.filename }));
+        break;
+
+      case 'toggleHeadingCollapse':
+        var thcId = target.dataset.headingId;
+        var thcHeading = document.getElementById(thcId);
+        if (thcHeading && currentNoteFilename) {
+          var wasCollapsed = thcHeading.dataset.collapsed === 'true';
+          var nowCollapsed = !wasCollapsed;
+          thcHeading.dataset.collapsed = String(nowCollapsed);
+          if (nowCollapsed) thcHeading.classList.add('dn-collapsed');
+          else thcHeading.classList.remove('dn-collapsed');
+          var thcChevron = target.querySelector('i');
+          if (thcChevron) {
+            thcChevron.className = nowCollapsed ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down';
+          }
+          toggleSectionVisibility(thcHeading, nowCollapsed);
+          updateTocCollapseState(thcId, nowCollapsed);
+          sendMessageToPlugin('toggleHeadingCollapse', JSON.stringify({
+            filename: currentNoteFilename,
+            lineIndex: thcHeading.dataset.lineIndex,
+            headingId: thcId,
+          }));
+        }
         break;
 
       case 'scrollToHeading':
