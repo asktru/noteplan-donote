@@ -738,30 +738,94 @@ function buildLeftSidebar(pinnedNotes, selectedFilename) {
  * Analyze note content for task statistics to determine which filters to show.
  */
 function getTaskStats(content) {
-  var stats = { hasTasks: false };
+  var stats = { hasTasks: false, hasCompleted: false, hasCancelled: false, hasPriority: false, hasDated: false, hasChecklists: false, hasRegularTasks: false };
   if (!content) return stats;
   var lines = content.split('\n');
   for (var i = 0; i < lines.length; i++) {
     var t = lines[i].trimStart();
-    if (/^[-*]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*]/.test(t) || /^\+\s+/.test(t)) {
-      stats.hasTasks = true;
-      break;
-    }
+    // Check if this is a task or checklist line (bracket or bare notation)
+    var isChecklist = /^\+\s+/.test(t);
+    var isRegularTask = /^[-*]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*]/.test(t);
+    if (!isChecklist && !isRegularTask) continue;
+    stats.hasTasks = true;
+    if (isChecklist) stats.hasChecklists = true;
+    if (isRegularTask) stats.hasRegularTasks = true;
+    if (/\[x\]/.test(t) || /@done\(/.test(t)) stats.hasCompleted = true;
+    if (/\[-\]/.test(t)) stats.hasCancelled = true;
+    if (/^[-*+]\s+(?:\[[ x\-]\]\s+)?!{1,3}\s/.test(t)) stats.hasPriority = true;
+    if (/>\d{4}-\d{2}-\d{2}/.test(t) || />\d{4}-W\d{2}/.test(t) || />today/.test(t)) stats.hasDated = true;
   }
   return stats;
 }
 
-function buildFilterBar(filterQuery, hasTasks) {
-  if (!hasTasks) return '';
+function buildFilterBar(filters, stats) {
+  if (!stats || !stats.hasTasks) return '';
+
+  var showStatus = stats.hasCompleted || stats.hasCancelled;
+  var showPriority = stats.hasPriority;
+  var showDate = stats.hasDated;
+  var showType = stats.hasChecklists && stats.hasRegularTasks;
+
+  if (!showStatus && !showPriority && !showDate && !showType) return '';
+
+  var f = filters || {};
+  var statusVal = f.status || 'all';
+  var priVal = f.priority || 'all';
+  var dateVal = f.date || 'all';
+  var typeVal = f.type || 'all';
+
+  function btn(group, value, label) {
+    var active = '';
+    if (group === 'status' && statusVal === value) active = ' active';
+    if (group === 'priority' && priVal === value) active = ' active';
+    if (group === 'date' && dateVal === value) active = ' active';
+    if (group === 'type' && typeVal === value) active = ' active';
+    return '<button class="dn-filter-btn' + active + '" data-action="setFilter" data-group="' + group + '" data-value="' + value + '">' + label + '</button>';
+  }
+
   var html = '<div class="dn-filter-bar" id="dnFilterBar">';
-  html += '<i class="fa-solid fa-magnifying-glass dn-filter-icon"></i>';
-  html += '<input class="dn-filter-input" id="dnFilterInput" type="text" placeholder="Filter tasks\u2026 e.g. open @name #tag !!!" value="' + esc(filterQuery || '') + '" spellcheck="false" autocomplete="off">';
-  html += '<button class="dn-filter-clear" data-action="clearFilter" title="Clear filter"' + (filterQuery ? '' : ' style="display:none"') + '><i class="fa-solid fa-xmark"></i></button>';
+  if (showType) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Type</span>';
+    html += btn('type', 'all', 'All');
+    html += btn('type', 'task', 'Tasks');
+    html += btn('type', 'checklist', 'Checklists');
+    html += '</div>';
+  }
+  if (showStatus) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Status</span>';
+    html += btn('status', 'all', 'All');
+    html += btn('status', 'open', 'Open');
+    html += btn('status', 'done', 'Done');
+    if (stats.hasCancelled) html += btn('status', 'cancelled', 'Cancelled');
+    html += '</div>';
+  }
+  if (showPriority) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Priority</span>';
+    html += btn('priority', 'all', 'All');
+    html += btn('priority', 'high', '!!!');
+    html += btn('priority', 'med+', '!! +');
+    html += btn('priority', 'any', 'Any');
+    html += btn('priority', 'none', 'None');
+    html += '</div>';
+  }
+  if (showDate) {
+    html += '<div class="dn-filter-group">';
+    html += '<span class="dn-filter-label">Date</span>';
+    html += btn('date', 'all', 'All');
+    html += btn('date', 'nodate', 'No date');
+    html += btn('date', 'overdue', 'Overdue');
+    html += btn('date', 'today', 'Today');
+    html += btn('date', 'overdue+today', 'Overdue + Today');
+    html += '</div>';
+  }
   html += '</div>';
   return html;
 }
 
-function buildMainContent(noteHTML, filterQuery, hasTasks) {
+function buildMainContent(noteHTML, filters, taskStats) {
   var html = '<div class="dn-main-wrap">';
   if (!noteHTML) {
     html += '<div class="dn-main" id="dnMain">';
@@ -771,7 +835,7 @@ function buildMainContent(noteHTML, filterQuery, hasTasks) {
     html += '<p class="dn-text-muted">Choose a pinned note from the sidebar</p>';
     html += '</div></div>';
   } else {
-    html += buildFilterBar(filterQuery, hasTasks);
+    html += buildFilterBar(filters, taskStats);
     html += '<div class="dn-main" id="dnMain">';
     html += '<div class="dn-content">' + noteHTML + '</div>';
     html += '</div>';
@@ -842,7 +906,7 @@ function buildRightSidebar(headings, metadata, selectedFilename, isPinned) {
   return html;
 }
 
-function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, metadata, filterQuery, taskStats) {
+function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, metadata, filters, taskStats) {
   var isPinned = false;
   for (var pi = 0; pi < pinnedNotes.length; pi++) {
     if (pinnedNotes[pi].filename === selectedFilename) { isPinned = true; break; }
@@ -852,7 +916,7 @@ function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, m
   html += '<button class="dn-mobile-toggle dn-right-toggle" data-action="toggleRight"><i class="fa-solid fa-list-ul"></i></button>';
   html += buildLeftSidebar(pinnedNotes, selectedFilename);
   html += '<div class="dn-left-backdrop" data-action="toggleLeft"></div>';
-  html += buildMainContent(noteHTML, filterQuery, taskStats.hasTasks);
+  html += buildMainContent(noteHTML, filters, taskStats);
   html += buildRightSidebar(headings, metadata, selectedFilename, isPinned);
   html += '<div class="dn-right-backdrop" data-action="toggleRight"></div>';
   html += '</div>';
@@ -1153,24 +1217,23 @@ function getInlineCSS() {
 
 /* Filter bar */
 '.dn-filter-bar {\n' +
-'  display: flex; align-items: center; gap: 8px;\n' +
-'  padding: 6px 16px; flex-shrink: 0;\n' +
+'  display: flex; gap: 12px; flex-wrap: wrap; align-items: center;\n' +
+'  padding: 8px 16px; flex-shrink: 0;\n' +
 '  border-bottom: 1px solid var(--dn-border);\n' +
 '  background: var(--dn-bg-card);\n' +
 '}\n' +
-'.dn-filter-icon { color: var(--dn-text-faint); font-size: 12px; flex-shrink: 0; }\n' +
-'.dn-filter-input {\n' +
-'  flex: 1; border: none; background: transparent; outline: none;\n' +
-'  color: var(--dn-text); font-size: 13px; font-family: inherit;\n' +
-'  min-width: 0; padding: 2px 0;\n' +
+'.dn-filter-group { display: flex; align-items: center; gap: 2px; }\n' +
+'.dn-filter-label {\n' +
+'  font-size: 10px; font-weight: 700; text-transform: uppercase;\n' +
+'  letter-spacing: 0.05em; color: var(--dn-text-faint); margin-right: 4px;\n' +
 '}\n' +
-'.dn-filter-input::placeholder { color: var(--dn-text-faint); font-size: 12px; }\n' +
-'.dn-filter-clear {\n' +
-'  border: none; background: transparent; cursor: pointer;\n' +
-'  color: var(--dn-text-faint); font-size: 12px; padding: 2px 6px;\n' +
-'  border-radius: 3px; flex-shrink: 0;\n' +
+'.dn-filter-btn {\n' +
+'  padding: 2px 8px; font-size: 11px; font-weight: 500;\n' +
+'  border-radius: 100px; border: none; background: transparent;\n' +
+'  color: var(--dn-text-muted); cursor: pointer;\n' +
 '}\n' +
-'.dn-filter-clear:hover { color: var(--dn-text); background: var(--dn-border); }\n' +
+'.dn-filter-btn:hover { background: var(--dn-border); color: var(--dn-text); }\n' +
+'.dn-filter-btn.active { background: var(--dn-accent-soft); color: var(--dn-accent); font-weight: 600; }\n' +
 
 /* Bullet items */
 '.dn-bullet {\n' +
@@ -1404,7 +1467,7 @@ async function showDonote(selectedFilename) {
     var noteHTML = '';
     var headings = [];
     var metadata = {};
-    var filterQuery = '';
+    var filters = {};
     var taskStats = {};
     var noteContent = '';
 
@@ -1423,13 +1486,16 @@ async function showDonote(selectedFilename) {
         if (parsed.frontmatter.attendees) metadata.attendees = parsed.frontmatter.attendees;
         if (parsed.frontmatter.recording) metadata.recording = parsed.frontmatter.recording;
 
-        // Extract filter query from frontmatter
-        if (parsed.frontmatter['dn-filter']) filterQuery = parsed.frontmatter['dn-filter'];
+        // Extract filters from frontmatter
+        if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
+        if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
+        if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+        if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
       }
     }
 
     taskStats = getTaskStats(noteContent);
-    var bodyContent = buildDashboardHTML(pinnedNotes, filename, noteHTML, headings, metadata, filterQuery, taskStats);
+    var bodyContent = buildDashboardHTML(pinnedNotes, filename, noteHTML, headings, metadata, filters, taskStats);
     var fullHTML = buildFullHTML(bodyContent);
 
     await CommandBar.onMainThread();
@@ -1499,11 +1565,15 @@ async function sendFilterBarUpdate(filename) {
   var content = note.content || '';
   var stats = getTaskStats(content);
   var parsed = parseFrontmatter(content);
-  var filterQuery = parsed.frontmatter['dn-filter'] || '';
-  var filterBarHTML = buildFilterBar(filterQuery, stats.hasTasks);
+  var filters = {};
+  if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
+  if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
+  if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+  if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
+  var filterBarHTML = buildFilterBar(filters, stats);
   await sendToHTMLWindow(WINDOW_ID, 'FILTER_BAR_UPDATED', {
     filterBarHTML: filterBarHTML,
-    filterQuery: filterQuery,
+    filters: filters,
   });
 }
 
@@ -1535,8 +1605,12 @@ async function onMessageFromHTMLView(actionType, data) {
 
             // Build filter bar for this note
             var selStats = getTaskStats(content);
-            var selFilterQuery = parsed.frontmatter['dn-filter'] || '';
-            var filterBarHTML = buildFilterBar(selFilterQuery, selStats.hasTasks);
+            var selFilters = {};
+            if (parsed.frontmatter['dn-filter-status']) selFilters.status = parsed.frontmatter['dn-filter-status'];
+            if (parsed.frontmatter['dn-filter-priority']) selFilters.priority = parsed.frontmatter['dn-filter-priority'];
+            if (parsed.frontmatter['dn-filter-date']) selFilters.date = parsed.frontmatter['dn-filter-date'];
+            if (parsed.frontmatter['dn-filter-type']) selFilters.type = parsed.frontmatter['dn-filter-type'];
+            var filterBarHTML = buildFilterBar(selFilters, selStats);
 
             await sendToHTMLWindow(WINDOW_ID, 'NOTE_LOADED', {
               filename: msg.filename,
@@ -1545,7 +1619,7 @@ async function onMessageFromHTMLView(actionType, data) {
               metadata: metadata,
               isPinned: noteIsPinned,
               filterBarHTML: filterBarHTML,
-              filterQuery: selFilterQuery,
+              filters: selFilters,
             });
           }
         }
@@ -1682,39 +1756,47 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
-      case 'setFilterQuery':
-        if (msg.filename && msg.query !== undefined) {
+      case 'setFilter':
+        if (msg.filename && msg.group && msg.value) {
           var fNote = getNoteByFilename(msg.filename);
           if (fNote) {
             var fContent = fNote.content || '';
-            var fKey = 'dn-filter';
+            var fKey = 'dn-filter-' + msg.group;
             var fLines = fContent.split('\n');
             if (fLines[0].trim() === '---') {
+              // Find end of frontmatter
               var fEndIdx = -1;
               for (var fi = 1; fi < fLines.length; fi++) {
                 if (fLines[fi].trim() === '---') { fEndIdx = fi; break; }
               }
               if (fEndIdx > 0) {
+                // Check if key exists
                 var fFound = false;
                 for (var fj = 1; fj < fEndIdx; fj++) {
-                  if (fLines[fj].match(/^dn-filter\s*:/)) {
-                    if (!msg.query) {
-                      fLines.splice(fj, 1); // remove key when query is empty
+                  if (fLines[fj].match(new RegExp('^' + fKey + '\\s*:'))) {
+                    if (msg.value === 'all') {
+                      fLines.splice(fj, 1); // remove filter when set to 'all'
                     } else {
-                      fLines[fj] = fKey + ': ' + msg.query;
+                      fLines[fj] = fKey + ': ' + msg.value;
                     }
                     fFound = true;
                     break;
                   }
                 }
-                if (!fFound && msg.query) {
-                  fLines.splice(fEndIdx, 0, fKey + ': ' + msg.query);
+                if (!fFound && msg.value !== 'all') {
+                  fLines.splice(fEndIdx, 0, fKey + ': ' + msg.value);
                 }
               }
-            } else if (msg.query) {
-              fLines.unshift('---', fKey + ': ' + msg.query, '---');
+            } else if (msg.value !== 'all') {
+              // No frontmatter — add one
+              fLines.unshift('---', fKey + ': ' + msg.value, '---');
             }
             fNote.content = fLines.join('\n');
+            // Send filter update to HTML (no full refresh)
+            await sendToHTMLWindow(WINDOW_ID, 'FILTER_CHANGED', {
+              group: msg.group,
+              value: msg.value,
+            });
           }
         }
         break;
