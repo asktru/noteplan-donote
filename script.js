@@ -593,6 +593,13 @@ function renderNoteToHTML(content, noteFilename) {
     var indentLevel = tabCount > 0 ? tabCount : Math.floor(spaceCount / 2);
     var indentClass = indentLevel > 0 ? ' dn-indent-' + Math.min(indentLevel, 6) : '';
 
+    // --- Tasks & Checklists ---
+    // NotePlan supports two notations:
+    //   Bracket style:  - [ ] task  / - [x] done  / - [-] cancelled  |  + [ ] checklist / + [x] / + [-]
+    //   Bare style:     * task  (open)  |  + task  (open checklist)
+    // Both must be recognized. Bracket style carries status in [x]/[-]; bare style is always
+    // open unless @done() is present in the content (edge case when NotePlan preserves bare prefix).
+
     // Checklist with brackets: + [ ], + [x], + [-]
     var checklistMatch = trimmed.match(/^\+\s+\[([x \-])\]\s+(.*)/);
     if (checklistMatch) {
@@ -604,13 +611,16 @@ function renderNoteToHTML(content, noteFilename) {
       continue;
     }
 
-    // Checklist without brackets: + Something
+    // Checklist without brackets (bare): + Something
+    // Note: bracket checklists (+ [ ], + [x], + [-]) are already matched above,
+    // so no need to exclude '+ [' here — that would block '+ [link](url)' content.
     var checklistBareMatch = trimmed.match(/^\+\s+(.+)/);
-    if (checklistBareMatch && !trimmed.startsWith('+ [')) {
+    if (checklistBareMatch) {
       if (inList) flushList();
       var clbContent = checklistBareMatch[1];
+      var clbStatus = /@done\(/.test(clbContent) ? 'done' : 'open';
       var clbPri = extractPriority(clbContent);
-      html += buildTaskHTML(clbContent, 'open', true, clbPri.level, clbPri.content, indentClass, noteFilename, lineOffset + i);
+      html += buildTaskHTML(clbContent, clbStatus, true, clbPri.level, clbPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -625,13 +635,16 @@ function renderNoteToHTML(content, noteFilename) {
       continue;
     }
 
-    // Task without brackets: * Something (NotePlan treats * as open task)
+    // Task without brackets (bare): * Something (NotePlan default open task)
+    // Note: bracket tasks (* [ ], * [x], * [-]) are already matched above,
+    // so no need to exclude '* [' here — that would block '* [link](url)' content.
     var starTaskMatch = trimmed.match(/^\*\s+(.+)/);
-    if (starTaskMatch && !trimmed.startsWith('**') && !trimmed.startsWith('* [')) {
+    if (starTaskMatch && !trimmed.startsWith('**')) {
       if (inList) flushList();
       var stContent = starTaskMatch[1];
+      var stStatus = /@done\(/.test(stContent) ? 'done' : 'open';
       var stPri = extractPriority(stContent);
-      html += buildTaskHTML(stContent, 'open', false, stPri.level, stPri.content, indentClass, noteFilename, lineOffset + i);
+      html += buildTaskHTML(stContent, stStatus, false, stPri.level, stPri.content, indentClass, noteFilename, lineOffset + i);
       continue;
     }
 
@@ -704,11 +717,11 @@ function getTaskStats(content) {
   var lines = content.split('\n');
   for (var i = 0; i < lines.length; i++) {
     var t = lines[i].trimStart();
-    // Check if this is a task or checklist line
-    var isTask = /^[-*+]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*[]/.test(t) || /^\+\s+[^[]/.test(t);
+    // Check if this is a task or checklist line (bracket or bare notation)
+    var isTask = /^[-*+]\s+\[[ x\-]\]/.test(t) || /^\*\s+[^*]/.test(t) || /^\+\s+/.test(t);
     if (!isTask) continue;
     stats.hasTasks = true;
-    if (/\[x\]/.test(t)) stats.hasCompleted = true;
+    if (/\[x\]/.test(t) || /@done\(/.test(t)) stats.hasCompleted = true;
     if (/\[-\]/.test(t)) stats.hasCancelled = true;
     if (/^[-*+]\s+(?:\[[ x\-]\]\s+)?!{1,3}\s/.test(t)) stats.hasPriority = true;
     if (/>\d{4}-\d{2}-\d{2}/.test(t) || />\d{4}-W\d{2}/.test(t) || />today/.test(t)) stats.hasDated = true;
@@ -984,7 +997,7 @@ function getInlineCSS() {
 '  height: 100%; text-align: center; color: var(--dn-text-muted);\n' +
 '}\n' +
 '.dn-empty-icon { font-size: 48px; color: var(--dn-text-faint); margin-bottom: 16px; }\n' +
-'.dn-content { max-width: 720px; }\n' +
+'.dn-content { max-width: none; }\n' +
 
 /* Headings */
 '.dn-heading { margin: 24px 0 8px; font-weight: 700; }\n' +
