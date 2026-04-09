@@ -1356,7 +1356,8 @@ function getInlineCSS() {
 '  }\n' +
 '  .dn-right.open { transform: translateX(0); box-shadow: -4px 0 24px color-mix(in srgb, black 25%, transparent); }\n' +
 '  .dn-right-backdrop.open { display: block; }\n' +
-'  .dn-main { padding: 50px 16px 60px; }\n' +
+'  .dn-main { padding: 16px 16px 60px; }\n' +
+'  .dn-main-wrap { padding-top: 44px; }\n' +
 '}\n' +
 
 /* Ultra-narrow synced mode: show TOC full-width, hide content */
