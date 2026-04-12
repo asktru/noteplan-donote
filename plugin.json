@@ -6,7 +6,7 @@
   "plugin.description": "A note viewer with pinned notes, markdown rendering, and table of contents.",
   "plugin.icon": "📖",
   "plugin.author": "asktru",
-  "plugin.version": "1.0.0",
+  "plugin.version": "1.2.0",
   "plugin.lastUpdateInfo": "Initial release",
   "plugin.script": "script.js",
   "plugin.isRemote": "false",
