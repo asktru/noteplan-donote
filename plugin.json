@@ -6,8 +6,8 @@
   "plugin.description": "A note viewer with pinned notes, markdown rendering, and table of contents.",
   "plugin.icon": "📖",
   "plugin.author": "asktru",
-  "plugin.version": "1.2.0",
-  "plugin.lastUpdateInfo": "Initial release",
+  "plugin.version": "1.3.0",
+  "plugin.lastUpdateInfo": "Collapsible tasks/bullets/checklists; colored H1–H4 with completion pie; new 'Open in Donote' and 'Preview in Donote window' commands; ### --- renders as a divider.",
   "plugin.script": "script.js",
   "plugin.isRemote": "false",
   "plugin.dependsOn": [
