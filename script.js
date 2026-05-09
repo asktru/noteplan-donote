@@ -276,9 +276,12 @@ function extractHeadings(body, fullContent) {
       var level = headingMatch[1].length;
       var text = headingMatch[2].trim();
       var cleanText = text.replace(/\s*…$/, '');
-      var isCollapsed = text !== cleanText;
-      var id = 'heading-' + headings.length;
-      headings.push({ level: level, text: cleanText, id: id, charOffset: bodyOffset + charPos, collapsed: isCollapsed });
+      // Skip separator-style headings (e.g. "### ---") — they render as <hr>, not in TOC
+      if (!/^[-*_]{3,}$/.test(cleanText)) {
+        var isCollapsed = text !== cleanText;
+        var id = 'heading-' + headings.length;
+        headings.push({ level: level, text: cleanText, id: id, charOffset: bodyOffset + charPos, collapsed: isCollapsed });
+      }
     }
     charPos += line.length + 1;
   }
@@ -452,6 +455,9 @@ function computeHeadingTaskStats(body) {
     var hMatch = line.match(/^(#{1,6})\s+(.+)/);
     if (hMatch) {
       var level = hMatch[1].length;
+      var hTextClean = hMatch[2].trim().replace(/\s*…$/, '');
+      // Separator headings render as <hr> and don't get a stats entry
+      if (/^[-*_]{3,}$/.test(hTextClean)) continue;
       while (stack.length > 0 && stack[stack.length - 1].level >= level) stack.pop();
       var idx = stats.length;
       stats.push({ total: 0, done: 0 });
@@ -636,21 +642,24 @@ function renderNoteToHTML(content, noteFilename) {
       var hRawText = headingMatch[2].trim();
       var hCollapsed = hRawText.endsWith('…');
       var hText = hRawText.replace(/\s*…$/, '');
-      var hId = 'heading-' + headingIdx++;
       var isSeparator = /^[-*_]{3,}$/.test(hText);
       // Close section bodies for headings at same or higher level
       while (sectionStack.length > 0 && sectionStack[sectionStack.length - 1] >= hLevel) {
         html += '</div>';
         sectionStack.pop();
       }
+      if (isSeparator) {
+        // Render `### ---` style headings as a thin horizontal divider, not a heading
+        html += '<hr class="dn-hr">';
+        continue;
+      }
+      var hId = 'heading-' + headingIdx++;
       html += '<h' + hLevel + ' class="dn-heading dn-h' + hLevel + (hCollapsed ? ' dn-collapsed' : '') + '" id="' + hId + '" data-level="' + hLevel + '" data-collapsed="' + hCollapsed + '" data-line-index="' + (lineOffset + i) + '">';
-      if (!isSeparator) {
-        var chevronDir = hCollapsed ? 'right' : 'down';
-        html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span>';
-        var hStats = headingStats[headingIdx - 1];
-        if (hStats && hStats.total > 0) {
-          html += buildHeadingProgressSVG(hStats.done, hStats.total);
-        }
+      var chevronDir = hCollapsed ? 'right' : 'down';
+      html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span>';
+      var hStats = headingStats[headingIdx - 1];
+      if (hStats && hStats.total > 0) {
+        html += buildHeadingProgressSVG(hStats.done, hStats.total);
       }
       html += renderInline(hText);
       html += '</h' + hLevel + '>';
