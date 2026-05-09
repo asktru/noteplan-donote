@@ -64,6 +64,7 @@ function handleFilterBarUpdated(data) {
     if (data.filters.type) activeFilters.type = data.filters.type;
   }
   applyFilters();
+  applyTypeFilter();
 }
 
 function handlePriorityChanged(data) {
@@ -162,15 +163,39 @@ function applyFilters() {
       if (activeFilters.date === 'overdue+today' && (date === '' || date > today)) show = false;
     }
 
-    // Type filter
-    if (show && activeFilters.type !== 'all') {
-      var itemType = t.dataset.type || 'task';
-      if (activeFilters.type === 'task' && itemType !== 'task') show = false;
-      if (activeFilters.type === 'checklist' && itemType !== 'checklist') show = false;
-    }
-
     t.style.display = show ? '' : 'none';
   });
+}
+
+// Type filter is body-class-based — independent toggles for text / task / checklist visibility.
+function applyTypeFilter() {
+  var visible = parseTypeFilter(activeFilters.type);
+  document.body.classList.toggle('dn-hide-text', !visible.text);
+  document.body.classList.toggle('dn-hide-task', !visible.task);
+  document.body.classList.toggle('dn-hide-checklist', !visible.checklist);
+}
+
+function parseTypeFilter(val) {
+  // Returns {text, task, checklist} booleans. 'all' or empty → all visible.
+  // Comma-list of any subset of those three keys → only those visible.
+  if (!val || val === 'all') return { text: true, task: true, checklist: true };
+  var visible = { text: false, task: false, checklist: false };
+  String(val).split(',').forEach(function(p) {
+    var k = p.trim();
+    if (k === 'text' || k === 'task' || k === 'checklist') visible[k] = true;
+  });
+  return visible;
+}
+
+function serializeTypeFilter(visible) {
+  // Returns 'all' if all visible; 'none' if none; else comma-list of visible keys.
+  var keys = [];
+  if (visible.text) keys.push('text');
+  if (visible.task) keys.push('task');
+  if (visible.checklist) keys.push('checklist');
+  if (keys.length === 3) return 'all';
+  if (keys.length === 0) return 'none';
+  return keys.join(',');
 }
 
 function handleTaskToggled(data) {
@@ -240,6 +265,7 @@ function handleNoteLoaded(data) {
       if (data.filters.date) activeFilters.date = data.filters.date;
       if (data.filters.type) activeFilters.type = data.filters.type;
     }
+    applyTypeFilter();
   }
 
   // Update main content — noteHTML is plugin-generated trusted HTML
@@ -407,6 +433,70 @@ function toggleItemChildrenVisibility(itemEl, collapsed) {
   }
 }
 
+// ============================================
+// FOCUS MODE
+// ============================================
+// Multiple headings can be focused simultaneously (each independent).
+// "Spared" set = union of {focused heading + its section-body + every ancestor heading +
+// every ancestor section-body} for each focused heading. Everything else inside .dn-content
+// gets the dn-dimmed class. Opacity inheritance is the reason this can't be a pure CSS rule.
+function applyFocusMode() {
+  var content = document.querySelector('.dn-content');
+  if (!content) return;
+
+  // Reset previous dim state
+  var prevDimmed = content.querySelectorAll('.dn-dimmed');
+  for (var i = 0; i < prevDimmed.length; i++) prevDimmed[i].classList.remove('dn-dimmed');
+
+  var focusedHeadings = content.querySelectorAll('.dn-heading.dn-focused');
+  if (focusedHeadings.length === 0) return;
+
+  // Build the spared set: each focused heading + its body + ancestor breadcrumb path
+  var spared = new Set();
+  for (var fh = 0; fh < focusedHeadings.length; fh++) {
+    var fH = focusedHeadings[fh];
+    spared.add(fH);
+    var fBody = fH.nextElementSibling;
+    if (fBody && fBody.classList.contains('dn-section-body') && fBody.dataset.for === fH.id) {
+      spared.add(fBody);
+    }
+    // Walk up: each ancestor section-body and its owning heading are breadcrumb context
+    var node = fH.parentElement;
+    while (node && node !== content) {
+      if (node.classList && node.classList.contains('dn-section-body')) {
+        spared.add(node);
+        var ownerHeading = node.previousElementSibling;
+        if (ownerHeading && ownerHeading.classList.contains('dn-heading')) {
+          spared.add(ownerHeading);
+        }
+      }
+      node = node.parentElement;
+    }
+  }
+
+  // Walk dn-content. At each level: if a child is in spared, recurse into it (only if it's
+  // a section-body that's NOT a focused-body — focused-body subtrees are fully visible).
+  // If not in spared, mark dn-dimmed (don't recurse — opacity inherits to descendants).
+  function walk(container) {
+    var children = container.children;
+    for (var c = 0; c < children.length; c++) {
+      var child = children[c];
+      if (spared.has(child)) {
+        // Don't dim. Recurse only into ancestor section-bodies (ones whose owning heading is NOT focused).
+        // The focused heading's own section-body is fully spared — no recursion needed.
+        if (child.classList.contains('dn-section-body')) {
+          var ownerHeading2 = child.previousElementSibling;
+          var ownerIsFocused = ownerHeading2 && ownerHeading2.classList.contains('dn-focused');
+          if (!ownerIsFocused) walk(child);
+        }
+      } else {
+        child.classList.add('dn-dimmed');
+      }
+    }
+  }
+  walk(content);
+}
+
 function markEmptyCollapsibleItems() {
   // Hide chevrons on collapsible items whose children wrapper is empty
   var items = document.querySelectorAll('.dn-collapsible[data-item-id]');
@@ -420,8 +510,10 @@ function markEmptyCollapsibleItems() {
 
 function applySectionCollapse() {
   // Section bodies for collapsed headings are pre-hidden via inline style.
-  // For items, also pre-hidden. We just hide chevrons on childless items.
+  // For items, also pre-hidden. We just hide chevrons on childless items
+  // and re-apply focus dimming for any 👀-marked headings.
   markEmptyCollapsibleItems();
+  applyFocusMode();
 }
 
 function updateTocCollapseState(headingId, collapsed) {
@@ -740,6 +832,7 @@ function showToast(message) {
 document.addEventListener('DOMContentLoaded', function() {
   setupScrollSpy();
   markEmptyCollapsibleItems();
+  applyFocusMode();
 
   // Init current note filename from active sidebar item, or from preview-mode layout attribute
   var activeNoteItem = document.querySelector('.dn-note-item.active');
@@ -750,11 +843,22 @@ document.addEventListener('DOMContentLoaded', function() {
     if (previewLayout) currentNoteFilename = previewLayout.dataset.filename || '';
   }
 
-  // Init filters from active buttons
-  document.querySelectorAll('.dn-filter-btn.active').forEach(function(b) {
-    activeFilters[b.dataset.group] = b.dataset.value;
+  // Init filters from active buttons (status/priority/date — single-select)
+  document.querySelectorAll('.dn-filter-btn.active:not(.dn-type-toggle)').forEach(function(b) {
+    if (b.dataset.group) activeFilters[b.dataset.group] = b.dataset.value;
   });
-  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all' || activeFilters.type !== 'all') {
+  // Init type filter from independent active toggles
+  var typeVisible = { text: false, task: false, checklist: false };
+  var anyTypeBtn = false;
+  document.querySelectorAll('.dn-type-toggle').forEach(function(b) {
+    anyTypeBtn = true;
+    if (b.classList.contains('active')) typeVisible[b.dataset.type] = true;
+  });
+  if (anyTypeBtn) {
+    activeFilters.type = serializeTypeFilter(typeVisible);
+    applyTypeFilter();
+  }
+  if (activeFilters.status !== 'all' || activeFilters.priority !== 'all' || activeFilters.date !== 'all') {
     applyFilters();
   }
 
@@ -786,6 +890,34 @@ document.addEventListener('DOMContentLoaded', function() {
             filename: currentNoteFilename,
             lineIndex: ticItem.dataset.lineIndex,
             itemId: ticId,
+          }));
+        }
+        break;
+
+      case 'toggleFocus':
+        e.stopPropagation();
+        var fId = target.dataset.headingId;
+        var fHeading = fId ? document.getElementById(fId) : null;
+        if (fHeading && currentNoteFilename) {
+          var fWas = fHeading.dataset.focused === 'true';
+          var fNow = !fWas;
+          fHeading.dataset.focused = String(fNow);
+          if (fNow) fHeading.classList.add('dn-focused');
+          else fHeading.classList.remove('dn-focused');
+          // Mark/unmark this heading's section-body as focused-body
+          var fBodyEl = fHeading.nextElementSibling;
+          if (fBodyEl && fBodyEl.classList.contains('dn-section-body') && fBodyEl.dataset.for === fId) {
+            if (fNow) fBodyEl.classList.add('dn-focused-body');
+            else fBodyEl.classList.remove('dn-focused-body');
+          }
+          // Swap eye icon style
+          var fIcon = target.querySelector('i');
+          if (fIcon) fIcon.className = fNow ? 'fa-solid fa-eye' : 'fa-regular fa-eye';
+          applyFocusMode();
+          sendMessageToPlugin('toggleFocus', JSON.stringify({
+            filename: currentNoteFilename,
+            lineIndex: fHeading.dataset.lineIndex,
+            headingId: fId,
           }));
         }
         break;
@@ -936,6 +1068,24 @@ document.addEventListener('DOMContentLoaded', function() {
           filename: filterFn,
           group: group,
           value: value,
+        }));
+        break;
+
+      case 'toggleType':
+        var ttKey = target.dataset.type;
+        if (ttKey !== 'text' && ttKey !== 'task' && ttKey !== 'checklist') break;
+        var ttVisible = parseTypeFilter(activeFilters.type);
+        ttVisible[ttKey] = !ttVisible[ttKey];
+        var ttSerialized = serializeTypeFilter(ttVisible);
+        activeFilters.type = ttSerialized;
+        target.classList.toggle('active', ttVisible[ttKey]);
+        applyTypeFilter();
+        var ttActiveNote = document.querySelector('.dn-note-item.active');
+        var ttFilterFn = ttActiveNote ? ttActiveNote.dataset.filename : (currentNoteFilename || '');
+        sendMessageToPlugin('setFilter', JSON.stringify({
+          filename: ttFilterFn,
+          group: 'type',
+          value: ttSerialized,
         }));
         break;
 

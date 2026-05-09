@@ -640,8 +640,13 @@ function renderNoteToHTML(content, noteFilename) {
       closeAllItems();
       var hLevel = headingMatch[1].length;
       var hRawText = headingMatch[2].trim();
-      var hCollapsed = hRawText.endsWith('…');
-      var hText = hRawText.replace(/\s*…$/, '');
+      // Strip outer markers in order: collapse marker '…' then focus marker '👀'.
+      // Format on disk: `## Title 👀 …` (focused + collapsed) or `## Title …` or `## Title 👀`.
+      var hCollapsed = /\s*…\s*$/.test(hRawText);
+      if (hCollapsed) hRawText = hRawText.replace(/\s*…\s*$/, '');
+      var hFocused = /\s*👀\s*$/.test(hRawText);
+      if (hFocused) hRawText = hRawText.replace(/\s*👀\s*$/, '');
+      var hText = hRawText;
       var isSeparator = /^[-*_]{3,}$/.test(hText);
       // Close section bodies for headings at same or higher level
       while (sectionStack.length > 0 && sectionStack[sectionStack.length - 1] >= hLevel) {
@@ -654,7 +659,8 @@ function renderNoteToHTML(content, noteFilename) {
         continue;
       }
       var hId = 'heading-' + headingIdx++;
-      html += '<h' + hLevel + ' class="dn-heading dn-h' + hLevel + (hCollapsed ? ' dn-collapsed' : '') + '" id="' + hId + '" data-level="' + hLevel + '" data-collapsed="' + hCollapsed + '" data-line-index="' + (lineOffset + i) + '">';
+      var hClasses = 'dn-heading dn-h' + hLevel + (hCollapsed ? ' dn-collapsed' : '') + (hFocused ? ' dn-focused' : '');
+      html += '<h' + hLevel + ' class="' + hClasses + '" id="' + hId + '" data-level="' + hLevel + '" data-collapsed="' + hCollapsed + '" data-focused="' + hFocused + '" data-line-index="' + (lineOffset + i) + '">';
       var chevronDir = hCollapsed ? 'right' : 'down';
       html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span>';
       var hStats = headingStats[headingIdx - 1];
@@ -662,9 +668,11 @@ function renderNoteToHTML(content, noteFilename) {
         html += buildHeadingProgressSVG(hStats.done, hStats.total);
       }
       html += renderInline(hText);
+      html += '<span class="dn-focus-toggle" data-action="toggleFocus" data-heading-id="' + hId + '" title="Focus on this section"><i class="fa-' + (hFocused ? 'solid' : 'regular') + ' fa-eye"></i></span>';
       html += '</h' + hLevel + '>';
       // Open section body for this heading's content
-      html += '<div class="dn-section-body" data-level="' + hLevel + '" data-for="' + hId + '"' + (hCollapsed ? ' style="display:none"' : '') + '>';
+      var bodyClasses = 'dn-section-body' + (hFocused ? ' dn-focused-body' : '');
+      html += '<div class="' + bodyClasses + '" data-level="' + hLevel + '" data-for="' + hId + '"' + (hCollapsed ? ' style="display:none"' : '') + '>';
       sectionStack.push(hLevel);
       continue;
     }
@@ -895,7 +903,7 @@ function buildFilterBar(filters, stats) {
   var showStatus = stats.hasCompleted || stats.hasCancelled;
   var showPriority = stats.hasPriority;
   var showDate = stats.hasDated;
-  var showType = stats.hasChecklists && stats.hasRegularTasks;
+  var showType = stats.hasTasks; // independent text/task/checklist toggles whenever any task content exists
 
   if (!showStatus && !showPriority && !showDate && !showType) return '';
 
@@ -903,24 +911,39 @@ function buildFilterBar(filters, stats) {
   var statusVal = f.status || 'all';
   var priVal = f.priority || 'all';
   var dateVal = f.date || 'all';
+  // Type filter: comma-list of currently visible types ('text', 'task', 'checklist').
+  // 'all' or absent means all three visible. Legacy single values ('task' / 'checklist') still
+  // work because they parse to a single-element list — same effect as before.
   var typeVal = f.type || 'all';
+  var visibleTypes = { text: true, task: true, checklist: true };
+  if (typeVal && typeVal !== 'all') {
+    visibleTypes = { text: false, task: false, checklist: false };
+    var parts = String(typeVal).split(',');
+    for (var pt = 0; pt < parts.length; pt++) {
+      var k = parts[pt].trim();
+      if (k === 'text' || k === 'task' || k === 'checklist') visibleTypes[k] = true;
+    }
+  }
 
   function btn(group, value, label) {
     var active = '';
     if (group === 'status' && statusVal === value) active = ' active';
     if (group === 'priority' && priVal === value) active = ' active';
     if (group === 'date' && dateVal === value) active = ' active';
-    if (group === 'type' && typeVal === value) active = ' active';
     return '<button class="dn-filter-btn' + active + '" data-action="setFilter" data-group="' + group + '" data-value="' + value + '">' + label + '</button>';
+  }
+  function typeBtn(typeKey, label) {
+    var active = visibleTypes[typeKey] ? ' active' : '';
+    return '<button class="dn-filter-btn dn-type-toggle' + active + '" data-action="toggleType" data-type="' + typeKey + '">' + label + '</button>';
   }
 
   var html = '<div class="dn-filter-bar" id="dnFilterBar">';
   if (showType) {
     html += '<div class="dn-filter-group">';
-    html += '<span class="dn-filter-label">Type</span>';
-    html += btn('type', 'all', 'All');
-    html += btn('type', 'task', 'Tasks');
-    html += btn('type', 'checklist', 'Checklists');
+    html += '<span class="dn-filter-label">Show</span>';
+    html += typeBtn('text', 'Text');
+    html += typeBtn('task', 'Tasks');
+    html += typeBtn('checklist', 'Checklists');
     html += '</div>';
   }
   if (showStatus) {
@@ -1204,6 +1227,28 @@ function getInlineCSS() {
 '.dn-item-toggle { left: -16px; width: 16px; height: 16px; font-size: 9px; }\n' +
 '.dn-collapsible.dn-no-children > .dn-collapse-toggle { display: none; }\n' +
 '.dn-h-progress { display: inline-block; vertical-align: -3px; margin-right: 8px; flex-shrink: 0; }\n' +
+'.dn-focus-toggle {\n' +
+'  display: inline-flex; align-items: center; justify-content: center;\n' +
+'  margin-left: 10px; padding: 2px 4px; border-radius: 4px;\n' +
+'  font-size: 0.7em; opacity: 0; cursor: pointer; vertical-align: middle;\n' +
+'  color: var(--dn-text-muted); transition: opacity 0.15s, color 0.15s;\n' +
+'}\n' +
+'.dn-heading:hover .dn-focus-toggle { opacity: 0.5; }\n' +
+'.dn-focus-toggle:hover { opacity: 1 !important; color: var(--dn-text); background: var(--dn-border); }\n' +
+'.dn-heading.dn-focused .dn-focus-toggle { opacity: 0.85; color: var(--dn-text); }\n' +
+'@media (max-width: 900px) { .dn-focus-toggle { opacity: 0.4; } }\n' +
+'.dn-dimmed { opacity: 0.22; transition: opacity 0.2s; }\n' +
+'.dn-dimmed .dn-focus-toggle { opacity: 0; }\n' +
+'body.dn-hide-text .dn-para,\n' +
+'body.dn-hide-text .dn-bullet,\n' +
+'body.dn-hide-text .dn-blockquote,\n' +
+'body.dn-hide-text .dn-table-wrap,\n' +
+'body.dn-hide-text .dn-image-wrap,\n' +
+'body.dn-hide-text .dn-code-wrap,\n' +
+'body.dn-hide-text .dn-list,\n' +
+'body.dn-hide-text .dn-hr { display: none; }\n' +
+'body.dn-hide-task .dn-task[data-type="task"] { display: none; }\n' +
+'body.dn-hide-checklist .dn-task[data-type="checklist"] { display: none; }\n' +
 '.dn-section-hidden { display: none !important; }\n' +
 '.dn-toc-item.dn-toc-collapsed { opacity: 0.45; }\n' +
 
@@ -2001,6 +2046,37 @@ async function onMessageFromHTMLView(actionType, data) {
                 icPara.content = icContent.trimEnd() + ' …';
               }
               icNote.updateParagraph(icPara);
+            }
+          }
+        }
+        break;
+
+      case 'toggleFocus':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var foNote = getNoteByFilename(msg.filename);
+          if (foNote) {
+            var foLine = parseInt(msg.lineIndex);
+            var foParas = foNote.paragraphs;
+            var foPara = null;
+            for (var foi = 0; foi < foParas.length; foi++) {
+              if (foParas[foi].lineIndex === foLine) { foPara = foParas[foi]; break; }
+            }
+            if (foPara) {
+              var foContent = foPara.content || '';
+              var hadFocus = /👀/.test(foContent);
+              if (hadFocus) {
+                // Remove the eye and any duplicate spaces it leaves behind, preserve trailing '…'
+                foPara.content = foContent.replace(/\s*👀\s*/g, ' ').replace(/\s+/g, ' ').replace(/\s+$/, '').replace(/\s+(?=…)/, ' ');
+              } else {
+                // Insert ' 👀' before any trailing '…'; otherwise append at end
+                if (/\s*…\s*$/.test(foContent)) {
+                  var foBase = foContent.replace(/\s*…\s*$/, '').trimEnd();
+                  foPara.content = foBase + ' 👀 …';
+                } else {
+                  foPara.content = foContent.trimEnd() + ' 👀';
+                }
+              }
+              foNote.updateParagraph(foPara);
             }
           }
         }
