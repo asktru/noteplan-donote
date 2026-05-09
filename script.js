@@ -437,6 +437,67 @@ function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent
   return html;
 }
 
+// Compute per-heading task completion stats. Returns array indexed in heading-render order.
+// Tasks are credited to ALL ancestor headings on the stack so e.g. an H1's pie reflects
+// completion across its entire section. Cancelled tasks count toward total but not done.
+function computeHeadingTaskStats(body) {
+  var lines = body.split('\n');
+  var stats = [];
+  var stack = []; // [{level, idx}]
+  var inCode = false;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i];
+    if (line.trim().startsWith('```')) { inCode = !inCode; continue; }
+    if (inCode) continue;
+    var hMatch = line.match(/^(#{1,6})\s+(.+)/);
+    if (hMatch) {
+      var level = hMatch[1].length;
+      while (stack.length > 0 && stack[stack.length - 1].level >= level) stack.pop();
+      var idx = stats.length;
+      stats.push({ total: 0, done: 0 });
+      stack.push({ level: level, idx: idx });
+      continue;
+    }
+    var t = line.trimStart();
+    var isChecklist = /^\+\s+/.test(t);
+    var isBracketTask = /^[-*]\s+\[[ x\-]\]/.test(t);
+    var isBareStarTask = /^\*\s+[^*\[]/.test(t);
+    if (!isChecklist && !isBracketTask && !isBareStarTask) continue;
+    var isCancelled = /\[-\]/.test(t);
+    if (isCancelled) continue; // ignore cancelled tasks entirely
+    var isDone = /\[x\]/.test(t) || /@done\(/.test(t);
+    for (var s = 0; s < stack.length; s++) {
+      stats[stack[s].idx].total++;
+      if (isDone) stats[stack[s].idx].done++;
+    }
+  }
+  return stats;
+}
+
+function buildHeadingProgressSVG(done, total) {
+  if (!total) return '';
+  var pct = done / total;
+  var size = 18, cx = 9, cy = 9, r = 7, sw = 2.25;
+  var html = '<svg class="dn-h-progress" viewBox="0 0 ' + size + ' ' + size + '" width="' + size + '" height="' + size + '" aria-hidden="true">';
+  html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="currentColor" stroke-width="' + sw + '" opacity="0.4"/>';
+  if (pct >= 1) {
+    // Things 3-style: filled circle with checkmark punched through in the surface color
+    html += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r + sw / 2) + '" fill="currentColor"/>';
+    html += '<path d="M 5.5 9.2 L 8 11.6 L 12.7 6.6" fill="none" stroke="var(--dn-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+  } else if (pct > 0) {
+    var angle = 2 * Math.PI * pct;
+    var endX = cx + r * Math.sin(angle);
+    var endY = cy - r * Math.cos(angle);
+    var largeArc = pct > 0.5 ? 1 : 0;
+    var d = 'M ' + cx + ' ' + cy + ' L ' + cx + ' ' + (cy - r) +
+            ' A ' + r + ' ' + r + ' 0 ' + largeArc + ' 1 ' +
+            endX.toFixed(3) + ' ' + endY.toFixed(3) + ' Z';
+    html += '<path d="' + d + '" fill="currentColor"/>';
+  }
+  html += '</svg>';
+  return html;
+}
+
 function renderNoteToHTML(content, noteFilename) {
   if (!content) return '<div class="dn-empty">No content</div>';
 
@@ -458,6 +519,7 @@ function renderNoteToHTML(content, noteFilename) {
   var listType = ''; // 'ul' or 'ol'
   var listItems = [];
   var headingIdx = 0;
+  var headingStats = computeHeadingTaskStats(body);
   var sectionStack = []; // stack of heading levels with open section-body divs
   var itemStack = [];    // stack of {indent, id} for currently open dn-children divs (tasks/bullets/checklists)
   var itemIdx = 0;
@@ -585,6 +647,10 @@ function renderNoteToHTML(content, noteFilename) {
       if (!isSeparator) {
         var chevronDir = hCollapsed ? 'right' : 'down';
         html += '<span class="dn-collapse-toggle" data-action="toggleHeadingCollapse" data-heading-id="' + hId + '"><i class="fa-solid fa-chevron-' + chevronDir + '"></i></span>';
+        var hStats = headingStats[headingIdx - 1];
+        if (hStats && hStats.total > 0) {
+          html += buildHeadingProgressSVG(hStats.done, hStats.total);
+        }
       }
       html += renderInline(hText);
       html += '</h' + hLevel + '>';
@@ -1128,6 +1194,7 @@ function getInlineCSS() {
 '.dn-collapsible { position: relative; }\n' +
 '.dn-item-toggle { left: -16px; width: 16px; height: 16px; font-size: 9px; }\n' +
 '.dn-collapsible.dn-no-children > .dn-collapse-toggle { display: none; }\n' +
+'.dn-h-progress { display: inline-block; vertical-align: -3px; margin-right: 8px; flex-shrink: 0; }\n' +
 '.dn-section-hidden { display: none !important; }\n' +
 '.dn-toc-item.dn-toc-collapsed { opacity: 0.45; }\n' +
 
