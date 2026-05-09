@@ -71,6 +71,18 @@
       "alias": ["pin", "unpin", "toggle pin"],
       "description": "Adds or removes the current note from the Donote plugin sidebar. Pinning opens the note in Donote.",
       "jsFunction": "togglePinCommand"
+    },
+    {
+      "name": "Open in Donote",
+      "alias": ["open donote", "show in donote"],
+      "description": "Opens the current note in the Donote sidebar viewer. Pins the note if not already pinned.",
+      "jsFunction": "openInDonoteCommand"
+    },
+    {
+      "name": "Preview in Donote window",
+      "alias": ["preview donote", "donote window", "donote preview"],
+      "description": "Renders the current note in a separate Donote window. Does not pin the note.",
+      "jsFunction": "previewDonoteWindowCommand"
     }
   ]
 }

@@ -387,8 +387,9 @@ function extractScheduledDate(content) {
   return '';
 }
 
-function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent, indentClass, filename, lineIdx) {
+function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent, indentClass, filename, lineIdx, itemId, itemCollapsed) {
   var statusClass = status === 'done' ? ' dn-done' : status === 'cancelled' ? ' dn-cancelled' : '';
+  var collapsedClass = itemCollapsed ? ' dn-item-collapsed' : '';
   var cbBase = isChecklist ? ' dn-cb-square' : '';
   var cbDoneClass = (status === 'done') ? ' done' : (status === 'cancelled') ? ' cancelled' : '';
   var cbIcon;
@@ -413,7 +414,12 @@ function buildTaskHTML(rawContent, status, isChecklist, priLevel, displayContent
   var statusAttr = ' data-status="' + status + '"';
   var typeAttr = ' data-type="' + (isChecklist ? 'checklist' : 'task') + '"';
 
-  var html = '<div class="dn-task' + statusClass + indentClass + '"' + fnAttr + lineAttr + priAttr + dateAttr + statusAttr + typeAttr + '>';
+  var idAttr = itemId ? ' data-item-id="' + itemId + '"' : '';
+  var html = '<div class="dn-task dn-collapsible' + statusClass + collapsedClass + indentClass + '"' + fnAttr + lineAttr + priAttr + dateAttr + statusAttr + typeAttr + idAttr + ' data-collapsed="' + (itemCollapsed ? 'true' : 'false') + '">';
+  if (itemId) {
+    var chevDir = itemCollapsed ? 'right' : 'down';
+    html += '<span class="dn-collapse-toggle dn-item-toggle" data-action="toggleItemCollapse" data-item-id="' + itemId + '"><i class="fa-solid fa-chevron-' + chevDir + '"></i></span>';
+  }
   html += '<span class="dn-cb' + cbBase + cbDoneClass + '" data-action="toggleTask"><i class="' + cbIcon + '"></i></span>';
   html += priBadge;
   html += '<span class="dn-task-text">' + renderInline(displayContent) + '</span>';
@@ -453,6 +459,30 @@ function renderNoteToHTML(content, noteFilename) {
   var listItems = [];
   var headingIdx = 0;
   var sectionStack = []; // stack of heading levels with open section-body divs
+  var itemStack = [];    // stack of {indent, id} for currently open dn-children divs (tasks/bullets/checklists)
+  var itemIdx = 0;
+
+  function closeItemsUpTo(indent) {
+    while (itemStack.length > 0 && itemStack[itemStack.length - 1].indent >= indent) {
+      html += '</div>';
+      itemStack.pop();
+    }
+  }
+  function closeAllItems() {
+    while (itemStack.length > 0) {
+      html += '</div>';
+      itemStack.pop();
+    }
+  }
+  function stripCollapseMarker(s) {
+    var collapsed = /\s*…\s*$/.test(s);
+    var clean = s.replace(/\s*…\s*$/, '');
+    return { collapsed: collapsed, content: clean };
+  }
+  function openItemChildren(indent, itemId, collapsed) {
+    itemStack.push({ indent: indent, id: itemId });
+    html += '<div class="dn-children" data-for="' + itemId + '"' + (collapsed ? ' style="display:none"' : '') + '>';
+  }
 
   function flushBlockquote() {
     if (bqLines.length > 0) {
@@ -509,6 +539,7 @@ function renderNoteToHTML(content, noteFilename) {
         if (inBlockquote) flushBlockquote();
         if (inTable) flushTable();
         if (inList) flushList();
+        closeAllItems();
         inCodeBlock = true;
         codeBlockLang = line.trim().substring(3).trim();
         codeLines = [];
@@ -538,6 +569,7 @@ function renderNoteToHTML(content, noteFilename) {
       if (inBlockquote) flushBlockquote();
       if (inTable) flushTable();
       if (inList) flushList();
+      closeAllItems();
       var hLevel = headingMatch[1].length;
       var hRawText = headingMatch[2].trim();
       var hCollapsed = hRawText.endsWith('…');
@@ -567,6 +599,7 @@ function renderNoteToHTML(content, noteFilename) {
       if (inBlockquote) flushBlockquote();
       if (inTable) flushTable();
       if (inList) flushList();
+      closeAllItems();
       html += '<hr class="dn-hr">';
       continue;
     }
@@ -624,23 +657,29 @@ function renderNoteToHTML(content, noteFilename) {
     var checklistMatch = trimmed.match(/^\+\s+\[([x \-])\]\s+(.*)/);
     if (checklistMatch) {
       if (inList) flushList();
+      closeItemsUpTo(indentLevel);
       var clStatus = checklistMatch[1] === 'x' ? 'done' : checklistMatch[1] === '-' ? 'cancelled' : 'open';
-      var clContent = checklistMatch[2];
+      var clStripped = stripCollapseMarker(checklistMatch[2]);
+      var clContent = clStripped.content;
       var clPri = extractPriority(clContent);
-      html += buildTaskHTML(clContent, clStatus, true, clPri.level, clPri.content, indentClass, noteFilename, lineOffset + i);
+      var clItemId = 'item-' + (itemIdx++);
+      html += buildTaskHTML(clContent, clStatus, true, clPri.level, clPri.content, indentClass, noteFilename, lineOffset + i, clItemId, clStripped.collapsed);
+      openItemChildren(indentLevel, clItemId, clStripped.collapsed);
       continue;
     }
 
     // Checklist without brackets (bare): + Something
-    // Note: bracket checklists (+ [ ], + [x], + [-]) are already matched above,
-    // so no need to exclude '+ [' here — that would block '+ [link](url)' content.
     var checklistBareMatch = trimmed.match(/^\+\s+(.+)/);
     if (checklistBareMatch) {
       if (inList) flushList();
-      var clbContent = checklistBareMatch[1];
+      closeItemsUpTo(indentLevel);
+      var clbStripped = stripCollapseMarker(checklistBareMatch[1]);
+      var clbContent = clbStripped.content;
       var clbStatus = /@done\(/.test(clbContent) ? 'done' : 'open';
       var clbPri = extractPriority(clbContent);
-      html += buildTaskHTML(clbContent, clbStatus, true, clbPri.level, clbPri.content, indentClass, noteFilename, lineOffset + i);
+      var clbItemId = 'item-' + (itemIdx++);
+      html += buildTaskHTML(clbContent, clbStatus, true, clbPri.level, clbPri.content, indentClass, noteFilename, lineOffset + i, clbItemId, clbStripped.collapsed);
+      openItemChildren(indentLevel, clbItemId, clbStripped.collapsed);
       continue;
     }
 
@@ -648,31 +687,45 @@ function renderNoteToHTML(content, noteFilename) {
     var taskMatch = trimmed.match(/^[-*]\s+\[([x \-])\]\s+(.*)/);
     if (taskMatch) {
       if (inList) flushList();
+      closeItemsUpTo(indentLevel);
       var tStatus = taskMatch[1] === 'x' ? 'done' : taskMatch[1] === '-' ? 'cancelled' : 'open';
-      var tContent = taskMatch[2];
+      var tStripped = stripCollapseMarker(taskMatch[2]);
+      var tContent = tStripped.content;
       var tPri = extractPriority(tContent);
-      html += buildTaskHTML(tContent, tStatus, false, tPri.level, tPri.content, indentClass, noteFilename, lineOffset + i);
+      var tItemId = 'item-' + (itemIdx++);
+      html += buildTaskHTML(tContent, tStatus, false, tPri.level, tPri.content, indentClass, noteFilename, lineOffset + i, tItemId, tStripped.collapsed);
+      openItemChildren(indentLevel, tItemId, tStripped.collapsed);
       continue;
     }
 
-    // Task without brackets (bare): * Something (NotePlan default open task)
-    // Note: bracket tasks (* [ ], * [x], * [-]) are already matched above,
-    // so no need to exclude '* [' here — that would block '* [link](url)' content.
+    // Task without brackets (bare): * Something
     var starTaskMatch = trimmed.match(/^\*\s+(.+)/);
     if (starTaskMatch && !trimmed.startsWith('**')) {
       if (inList) flushList();
-      var stContent = starTaskMatch[1];
+      closeItemsUpTo(indentLevel);
+      var stStripped = stripCollapseMarker(starTaskMatch[1]);
+      var stContent = stStripped.content;
       var stStatus = /@done\(/.test(stContent) ? 'done' : 'open';
       var stPri = extractPriority(stContent);
-      html += buildTaskHTML(stContent, stStatus, false, stPri.level, stPri.content, indentClass, noteFilename, lineOffset + i);
+      var stItemId = 'item-' + (itemIdx++);
+      html += buildTaskHTML(stContent, stStatus, false, stPri.level, stPri.content, indentClass, noteFilename, lineOffset + i, stItemId, stStripped.collapsed);
+      openItemChildren(indentLevel, stItemId, stStripped.collapsed);
       continue;
     }
 
-    // --- Bullet lists: - text (rendered as individual items with indentation) ---
+    // --- Bullet lists: - text ---
     var bulletMatch = trimmed.match(/^-\s+(.+)/);
     if (bulletMatch) {
       if (inList) flushList();
-      html += '<div class="dn-bullet' + indentClass + '"><span class="dn-bullet-dot"></span><span class="dn-bullet-text">' + renderInline(bulletMatch[1]) + '</span></div>';
+      closeItemsUpTo(indentLevel);
+      var bStripped = stripCollapseMarker(bulletMatch[1]);
+      var bItemId = 'item-' + (itemIdx++);
+      var bChevDir = bStripped.collapsed ? 'right' : 'down';
+      html += '<div class="dn-bullet dn-collapsible' + (bStripped.collapsed ? ' dn-item-collapsed' : '') + indentClass + '" data-item-id="' + bItemId + '" data-collapsed="' + (bStripped.collapsed ? 'true' : 'false') + '" data-line-index="' + (lineOffset + i) + '"' + (noteFilename ? ' data-filename="' + esc(noteFilename) + '"' : '') + '>';
+      html += '<span class="dn-collapse-toggle dn-item-toggle" data-action="toggleItemCollapse" data-item-id="' + bItemId + '"><i class="fa-solid fa-chevron-' + bChevDir + '"></i></span>';
+      html += '<span class="dn-bullet-dot"></span><span class="dn-bullet-text">' + renderInline(bStripped.content) + '</span>';
+      html += '</div>';
+      openItemChildren(indentLevel, bItemId, bStripped.collapsed);
       continue;
     }
 
@@ -680,12 +733,14 @@ function renderNoteToHTML(content, noteFilename) {
     var numMatch = trimmed.match(/^(\d+)\.\s+(.+)/);
     if (numMatch) {
       if (inList) flushList();
+      closeItemsUpTo(indentLevel);
       html += '<div class="dn-bullet dn-numbered' + indentClass + '"><span class="dn-num-marker">' + numMatch[1] + '.</span><span class="dn-bullet-text">' + renderInline(numMatch[2]) + '</span></div>';
       continue;
     }
     if (inList) flushList();
 
     // --- Regular paragraph ---
+    closeItemsUpTo(indentLevel);
     html += '<p class="dn-para">' + renderInline(line) + '</p>';
   }
 
@@ -696,6 +751,7 @@ function renderNoteToHTML(content, noteFilename) {
   if (inBlockquote) flushBlockquote();
   if (inTable) flushTable();
   if (inList) flushList();
+  closeAllItems();
 
   // Close remaining section bodies
   while (sectionStack.length > 0) {
@@ -1041,10 +1097,10 @@ function getInlineCSS() {
 
 /* Headings */
 '.dn-heading { margin: 24px 0 8px; font-weight: 700; position: relative; }\n' +
-'.dn-h1 { font-size: 26px; margin-top: 0; }\n' +
-'.dn-h2 { font-size: 22px; }\n' +
-'.dn-h3 { font-size: 18px; }\n' +
-'.dn-h4 { font-size: 16px; }\n' +
+'.dn-h1 { font-size: 26px; margin-top: 0; color: var(--dn-accent); }\n' +
+'.dn-h2 { font-size: 22px; color: var(--dn-blue); }\n' +
+'.dn-h3 { font-size: 18px; color: var(--dn-orange); }\n' +
+'.dn-h4 { font-size: 16px; color: var(--dn-green); }\n' +
 '.dn-h5 { font-size: 14px; }\n' +
 '.dn-h6 { font-size: 13px; color: var(--dn-text-muted); }\n' +
 
@@ -1058,12 +1114,20 @@ function getInlineCSS() {
 '  width: 20px; height: 20px; cursor: pointer; opacity: 0;\n' +
 '  transition: opacity 0.15s; font-size: 10px; border-radius: 3px;\n' +
 '}\n' +
-'.dn-heading:hover .dn-collapse-toggle { opacity: 0.6; }\n' +
+'.dn-heading:hover .dn-collapse-toggle,\n' +
+'.dn-task.dn-collapsible:hover > .dn-collapse-toggle,\n' +
+'.dn-bullet.dn-collapsible:hover > .dn-collapse-toggle { opacity: 0.6; }\n' +
 '.dn-collapse-toggle:hover { opacity: 1 !important; background: var(--dn-border); }\n' +
-'.dn-heading.dn-collapsed .dn-collapse-toggle { opacity: 0.5; }\n' +
-'.dn-heading.dn-collapsed::after {\n' +
-'  content: "…"; color: var(--dn-text-faint); font-weight: 400; margin-left: 6px;\n' +
+'.dn-heading.dn-collapsed .dn-collapse-toggle,\n' +
+'.dn-collapsible.dn-item-collapsed > .dn-collapse-toggle { opacity: 0.5; }\n' +
+'.dn-heading.dn-collapsed::after,\n' +
+'.dn-collapsible.dn-item-collapsed > .dn-task-text::after,\n' +
+'.dn-collapsible.dn-item-collapsed > .dn-bullet-text::after {\n' +
+'  content: " …"; color: var(--dn-text-faint); font-weight: 400;\n' +
 '}\n' +
+'.dn-collapsible { position: relative; }\n' +
+'.dn-item-toggle { left: -16px; width: 16px; height: 16px; font-size: 9px; }\n' +
+'.dn-collapsible.dn-no-children > .dn-collapse-toggle { display: none; }\n' +
 '.dn-section-hidden { display: none !important; }\n' +
 '.dn-toc-item.dn-toc-collapsed { opacity: 0.45; }\n' +
 
@@ -1843,6 +1907,29 @@ async function onMessageFromHTMLView(actionType, data) {
         }
         break;
 
+      case 'toggleItemCollapse':
+        if (msg.filename && msg.lineIndex !== undefined) {
+          var icNote = getNoteByFilename(msg.filename);
+          if (icNote) {
+            var icLine = parseInt(msg.lineIndex);
+            var icParas = icNote.paragraphs;
+            var icPara = null;
+            for (var ici = 0; ici < icParas.length; ici++) {
+              if (icParas[ici].lineIndex === icLine) { icPara = icParas[ici]; break; }
+            }
+            if (icPara) {
+              var icContent = icPara.content || '';
+              if (/\s*…\s*$/.test(icContent)) {
+                icPara.content = icContent.replace(/\s*…\s*$/, '');
+              } else {
+                icPara.content = icContent.trimEnd() + ' …';
+              }
+              icNote.updateParagraph(icPara);
+            }
+          }
+        }
+        break;
+
       case 'toggleHeadingCollapse':
         if (msg.filename && msg.lineIndex !== undefined) {
           var hcNote = getNoteByFilename(msg.filename);
@@ -1986,7 +2073,101 @@ async function togglePinCommand() {
   }
 }
 
+async function openInDonoteCommand() {
+  var note = Editor.note;
+  if (!note) {
+    await CommandBar.prompt('No note open', 'Open a note first, then run this command.');
+    return;
+  }
+  var content = note.content || '';
+  var parsed = parseFrontmatter(content);
+  if (parsed.frontmatter.pin === undefined) {
+    // Not pinned — pin it (assign next pin number)
+    var maxPin = 0;
+    var allNotes = getAllNotes();
+    for (var n = 0; n < allNotes.length; n++) {
+      var nc = allNotes[n].content || '';
+      if (nc.indexOf('pin:') < 0) continue;
+      var np = parseFrontmatter(nc);
+      var nv = parseInt(np.frontmatter.pin);
+      if (!isNaN(nv) && nv > maxPin) maxPin = nv;
+    }
+    var newPin = maxPin + 1;
+    var pLines = content.split('\n');
+    if (pLines[0].trim() === '---') {
+      pLines.splice(1, 0, 'pin: ' + newPin);
+    } else {
+      pLines.unshift('---', 'pin: ' + newPin, '---');
+    }
+    note.content = pLines.join('\n');
+  }
+  await showDonote(note.filename);
+}
+
+async function previewDonoteWindowCommand() {
+  try {
+    var note = Editor.note;
+    if (!note) {
+      await CommandBar.prompt('No note open', 'Open a note first, then run this command.');
+      return;
+    }
+    CommandBar.showLoading(true, 'Loading Donote preview...');
+    await CommandBar.onAsyncThread();
+
+    var filename = note.filename;
+    var content = note.content || '';
+    var parsed = parseFrontmatter(content);
+
+    var noteHTML = renderNoteToHTML(content, filename);
+    var headings = extractHeadings(parsed.body, content);
+    var metadata = {};
+    if (parsed.frontmatter.date) metadata.date = parsed.frontmatter.date;
+    if (parsed.frontmatter.attendees) metadata.attendees = parsed.frontmatter.attendees;
+    if (parsed.frontmatter.recording) metadata.recording = parsed.frontmatter.recording;
+
+    var filters = {};
+    if (parsed.frontmatter['dn-filter-status']) filters.status = parsed.frontmatter['dn-filter-status'];
+    if (parsed.frontmatter['dn-filter-priority']) filters.priority = parsed.frontmatter['dn-filter-priority'];
+    if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
+    if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
+    var taskStats = getTaskStats(content);
+
+    // Single-note layout: no left sidebar, retain TOC + filters
+    var bodyContent = '<div class="dn-layout dn-preview-mode" data-filename="' + esc(filename) + '">';
+    bodyContent += '<button class="dn-mobile-toggle dn-right-toggle" data-action="toggleRight"><i class="fa-solid fa-list-ul"></i></button>';
+    bodyContent += buildMainContent(noteHTML, filters, taskStats);
+    bodyContent += buildRightSidebar(headings, metadata, filename, false);
+    bodyContent += '<div class="dn-right-backdrop" data-action="toggleRight"></div>';
+    bodyContent += '</div>';
+    var fullHTML = buildFullHTML(bodyContent);
+
+    await CommandBar.onMainThread();
+    CommandBar.showLoading(false);
+
+    // Unique window ID per invocation so multiple previews can coexist
+    var previewID = WINDOW_ID + '.preview.' + Date.now();
+    var winTitle = 'Donote — ' + (note.title || filename);
+    var winOptions = {
+      customId: previewID,
+      shouldFocus: true,
+      reuseUsersWindowRect: false,
+      headerBGColor: 'transparent',
+      autoTopPadding: true,
+      icon: 'fa-book-open',
+      iconColor: '#6366F1',
+      width: 1100,
+      height: 800,
+    };
+    await HTMLView.showWindowWithOptions(fullHTML, winTitle, winOptions);
+  } catch (err) {
+    CommandBar.showLoading(false);
+    console.log('Donote preview error: ' + String(err));
+  }
+}
+
 globalThis.showDonote = showDonote;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshDonote = refreshDonote;
 globalThis.togglePinCommand = togglePinCommand;
+globalThis.openInDonoteCommand = openInDonoteCommand;
+globalThis.previewDonoteWindowCommand = previewDonoteWindowCommand;

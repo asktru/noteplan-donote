@@ -399,10 +399,29 @@ function toggleSectionVisibility(heading, collapsed) {
   }
 }
 
+function toggleItemChildrenVisibility(itemEl, collapsed) {
+  // Find the dn-children div that follows this item
+  var children = itemEl.nextElementSibling;
+  if (children && children.classList.contains('dn-children')) {
+    children.style.display = collapsed ? 'none' : '';
+  }
+}
+
+function markEmptyCollapsibleItems() {
+  // Hide chevrons on collapsible items whose children wrapper is empty
+  var items = document.querySelectorAll('.dn-collapsible[data-item-id]');
+  for (var i = 0; i < items.length; i++) {
+    var sib = items[i].nextElementSibling;
+    var hasChildren = sib && sib.classList.contains('dn-children') && sib.children.length > 0;
+    if (hasChildren) items[i].classList.remove('dn-no-children');
+    else items[i].classList.add('dn-no-children');
+  }
+}
+
 function applySectionCollapse() {
-  // Section bodies for collapsed headings are already hidden via inline style="display:none"
-  // from the renderer, so no additional work needed on initial load.
-  // This function exists for any dynamic re-application if needed.
+  // Section bodies for collapsed headings are pre-hidden via inline style.
+  // For items, also pre-hidden. We just hide chevrons on childless items.
+  markEmptyCollapsibleItems();
 }
 
 function updateTocCollapseState(headingId, collapsed) {
@@ -720,11 +739,15 @@ function showToast(message) {
 
 document.addEventListener('DOMContentLoaded', function() {
   setupScrollSpy();
+  markEmptyCollapsibleItems();
 
-  // Init current note filename from active sidebar item
+  // Init current note filename from active sidebar item, or from preview-mode layout attribute
   var activeNoteItem = document.querySelector('.dn-note-item.active');
   if (activeNoteItem) {
     currentNoteFilename = activeNoteItem.dataset.filename || '';
+  } else {
+    var previewLayout = document.querySelector('.dn-layout.dn-preview-mode[data-filename]');
+    if (previewLayout) currentNoteFilename = previewLayout.dataset.filename || '';
   }
 
   // Init filters from active buttons
@@ -744,6 +767,27 @@ document.addEventListener('DOMContentLoaded', function() {
     switch (action) {
       case 'selectNote':
         sendMessageToPlugin('selectNote', JSON.stringify({ filename: target.dataset.filename }));
+        break;
+
+      case 'toggleItemCollapse':
+        e.stopPropagation();
+        var ticId = target.dataset.itemId;
+        var ticItem = ticId ? document.querySelector('.dn-collapsible[data-item-id="' + ticId + '"]') : null;
+        if (ticItem && currentNoteFilename) {
+          var ticWas = ticItem.dataset.collapsed === 'true';
+          var ticNow = !ticWas;
+          ticItem.dataset.collapsed = String(ticNow);
+          if (ticNow) ticItem.classList.add('dn-item-collapsed');
+          else ticItem.classList.remove('dn-item-collapsed');
+          var ticChev = target.querySelector('i');
+          if (ticChev) ticChev.className = ticNow ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down';
+          toggleItemChildrenVisibility(ticItem, ticNow);
+          sendMessageToPlugin('toggleItemCollapse', JSON.stringify({
+            filename: currentNoteFilename,
+            lineIndex: ticItem.dataset.lineIndex,
+            itemId: ticId,
+          }));
+        }
         break;
 
       case 'toggleHeadingCollapse':
@@ -883,9 +927,11 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'setFilter':
         var group = target.dataset.group;
         var value = target.dataset.value;
-        // Get filename from currently active note in sidebar
+        // Optimistic local update — server reply only reaches main window, so don't rely on it
+        handleFilterChanged({ group: group, value: value });
+        // Get filename from active sidebar item, falling back to preview-mode current note
         var activeNote = document.querySelector('.dn-note-item.active');
-        var filterFn = activeNote ? activeNote.dataset.filename : '';
+        var filterFn = activeNote ? activeNote.dataset.filename : (currentNoteFilename || '');
         sendMessageToPlugin('setFilter', JSON.stringify({
           filename: filterFn,
           group: group,
