@@ -84,6 +84,12 @@
       "alias": ["preview donote", "donote window", "donote preview"],
       "description": "Renders the current note in a separate Donote window. Does not pin the note.",
       "jsFunction": "previewDonoteWindowCommand"
+    },
+    {
+      "name": "onUpdateOrInstall",
+      "description": "Install dependencies after install/update",
+      "jsFunction": "onUpdateOrInstall",
+      "hidden": true
     }
   ]
 }
