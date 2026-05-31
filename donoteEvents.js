@@ -1,7 +1,21 @@
 // asktru.Donote — donoteEvents.js
 // HTML-side event handlers for the Donote viewer
 
-/* global sendMessageToPlugin */
+/* global sendMessageToPlugin, npWindowID */
+
+// receivingPluginID and npWindowID are set in the inline script before the bridge
+// loads. Route every outgoing message through sendToPlugin so each payload carries
+// the originating window's ID; the plugin replies to that window (sidebar embed vs.
+// separate floating window). sendMessageToPlugin is `const` in the bridge and can't
+// be monkey-patched, so we wrap it.
+function sendToPlugin(action, data) {
+  try {
+    var d = data ? JSON.parse(data) : {};
+    if (typeof npWindowID !== 'undefined' && npWindowID && d._windowID === undefined) d._windowID = npWindowID;
+    data = JSON.stringify(d);
+  } catch (e) {}
+  return sendMessageToPlugin(action, data);
+}
 
 var syncEditorEnabled = false;
 var currentNoteFilename = '';
@@ -671,7 +685,7 @@ function renderCalendarPicker(picker) {
   clearBtn.textContent = 'Clear';
   clearBtn.addEventListener('click', function(e) {
     e.stopPropagation();
-    sendMessageToPlugin('scheduleTask', JSON.stringify({
+    sendToPlugin('scheduleTask', JSON.stringify({
       filename: calPickerTask.filename,
       lineIndex: calPickerTask.lineIndex,
       dateStr: '',
@@ -755,7 +769,7 @@ function renderCalendarPicker(picker) {
     weekCell.dataset.week = weekStr;
     weekCell.addEventListener('click', function(e) {
       e.stopPropagation();
-      sendMessageToPlugin('scheduleTask', JSON.stringify({
+      sendToPlugin('scheduleTask', JSON.stringify({
         filename: calPickerTask.filename,
         lineIndex: calPickerTask.lineIndex,
         dateStr: this.dataset.week,
@@ -780,7 +794,7 @@ function renderCalendarPicker(picker) {
 
         cell.addEventListener('click', function(e) {
           e.stopPropagation();
-          sendMessageToPlugin('scheduleTask', JSON.stringify({
+          sendToPlugin('scheduleTask', JSON.stringify({
             filename: calPickerTask.filename,
             lineIndex: calPickerTask.lineIndex,
             dateStr: this.dataset.date,
@@ -870,7 +884,7 @@ document.addEventListener('DOMContentLoaded', function() {
     var action = target.dataset.action;
     switch (action) {
       case 'selectNote':
-        sendMessageToPlugin('selectNote', JSON.stringify({ filename: target.dataset.filename }));
+        sendToPlugin('selectNote', JSON.stringify({ filename: target.dataset.filename }));
         break;
 
       case 'toggleItemCollapse':
@@ -886,7 +900,7 @@ document.addEventListener('DOMContentLoaded', function() {
           var ticChev = target.querySelector('i');
           if (ticChev) ticChev.className = ticNow ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down';
           toggleItemChildrenVisibility(ticItem, ticNow);
-          sendMessageToPlugin('toggleItemCollapse', JSON.stringify({
+          sendToPlugin('toggleItemCollapse', JSON.stringify({
             filename: currentNoteFilename,
             lineIndex: ticItem.dataset.lineIndex,
             itemId: ticId,
@@ -914,7 +928,7 @@ document.addEventListener('DOMContentLoaded', function() {
           var fIcon = target.querySelector('i');
           if (fIcon) fIcon.className = fNow ? 'fa-solid fa-eye' : 'fa-regular fa-eye';
           applyFocusMode();
-          sendMessageToPlugin('toggleFocus', JSON.stringify({
+          sendToPlugin('toggleFocus', JSON.stringify({
             filename: currentNoteFilename,
             lineIndex: fHeading.dataset.lineIndex,
             headingId: fId,
@@ -937,7 +951,7 @@ document.addEventListener('DOMContentLoaded', function() {
           }
           toggleSectionVisibility(thcHeading, nowCollapsed);
           updateTocCollapseState(thcId, nowCollapsed);
-          sendMessageToPlugin('toggleHeadingCollapse', JSON.stringify({
+          sendToPlugin('toggleHeadingCollapse', JSON.stringify({
             filename: currentNoteFilename,
             lineIndex: thcHeading.dataset.lineIndex,
             headingId: thcId,
@@ -955,7 +969,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Sync with editor if note is open in split view
         if (syncEditorEnabled && currentNoteFilename) {
           var charOff = parseInt(target.dataset.charOffset || '0');
-          sendMessageToPlugin('syncEditorToHeading', JSON.stringify({
+          sendToPlugin('syncEditorToHeading', JSON.stringify({
             filename: currentNoteFilename,
             charOffset: charOff,
           }));
@@ -967,12 +981,12 @@ document.addEventListener('DOMContentLoaded', function() {
         if (taskEl && taskEl.dataset.filename && taskEl.dataset.lineIndex !== undefined) {
           if (e.altKey) {
             // Opt+click: cancel
-            sendMessageToPlugin('cancelTask', JSON.stringify({
+            sendToPlugin('cancelTask', JSON.stringify({
               filename: taskEl.dataset.filename,
               lineIndex: taskEl.dataset.lineIndex,
             }));
           } else {
-            sendMessageToPlugin('toggleTask', JSON.stringify({
+            sendToPlugin('toggleTask', JSON.stringify({
               filename: taskEl.dataset.filename,
               lineIndex: taskEl.dataset.lineIndex,
             }));
@@ -1011,7 +1025,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var syncIcon = target.querySelector('i');
             if (syncIcon) syncIcon.className = 'fa-solid fa-arrow-up-right-from-square';
             target.lastChild.textContent = ' Open';
-            sendMessageToPlugin('closeSplitView', JSON.stringify({ filename: target.dataset.filename }));
+            sendToPlugin('closeSplitView', JSON.stringify({ filename: target.dataset.filename }));
           } else {
             // Enable sync — open note in split view
             syncEditorEnabled = true;
@@ -1020,21 +1034,21 @@ document.addEventListener('DOMContentLoaded', function() {
             var syncIcon2 = target.querySelector('i');
             if (syncIcon2) syncIcon2.className = 'fa-solid fa-link';
             target.lastChild.textContent = ' Synced';
-            sendMessageToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
+            sendToPlugin('openNoteInEditor', JSON.stringify({ filename: target.dataset.filename }));
           }
         }
         break;
 
       case 'togglePinFromViewer':
         if (target.dataset.filename) {
-          sendMessageToPlugin('togglePinFromViewer', JSON.stringify({ filename: target.dataset.filename }));
+          sendToPlugin('togglePinFromViewer', JSON.stringify({ filename: target.dataset.filename }));
         }
         break;
 
       case 'cyclePriority':
         var cpTask = target.closest('.dn-task');
         if (cpTask && cpTask.dataset.filename) {
-          sendMessageToPlugin('cyclePriority', JSON.stringify({
+          sendToPlugin('cyclePriority', JSON.stringify({
             filename: cpTask.dataset.filename,
             lineIndex: cpTask.dataset.lineIndex,
           }));
@@ -1044,7 +1058,7 @@ document.addEventListener('DOMContentLoaded', function() {
       case 'cancelTask':
         var caTask = target.closest('.dn-task');
         if (caTask && caTask.dataset.filename) {
-          sendMessageToPlugin('cancelTask', JSON.stringify({
+          sendToPlugin('cancelTask', JSON.stringify({
             filename: caTask.dataset.filename,
             lineIndex: caTask.dataset.lineIndex,
           }));
@@ -1064,7 +1078,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get filename from active sidebar item, falling back to preview-mode current note
         var activeNote = document.querySelector('.dn-note-item.active');
         var filterFn = activeNote ? activeNote.dataset.filename : (currentNoteFilename || '');
-        sendMessageToPlugin('setFilter', JSON.stringify({
+        sendToPlugin('setFilter', JSON.stringify({
           filename: filterFn,
           group: group,
           value: value,
@@ -1082,7 +1096,7 @@ document.addEventListener('DOMContentLoaded', function() {
         applyTypeFilter();
         var ttActiveNote = document.querySelector('.dn-note-item.active');
         var ttFilterFn = ttActiveNote ? ttActiveNote.dataset.filename : (currentNoteFilename || '');
-        sendMessageToPlugin('setFilter', JSON.stringify({
+        sendToPlugin('setFilter', JSON.stringify({
           filename: ttFilterFn,
           group: 'type',
           value: ttSerialized,
@@ -1167,7 +1181,7 @@ document.addEventListener('DOMContentLoaded', function() {
         parent.querySelectorAll('.dn-note-item').forEach(function(el) {
           orderedFilenames.push(el.dataset.filename);
         });
-        sendMessageToPlugin('reorderPinnedNotes', JSON.stringify({ orderedFilenames: orderedFilenames }));
+        sendToPlugin('reorderPinnedNotes', JSON.stringify({ orderedFilenames: orderedFilenames }));
       });
 
       item.addEventListener('dragend', function() {

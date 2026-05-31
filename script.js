@@ -7,6 +7,7 @@
 
 var PLUGIN_ID = 'asktru.Donote';
 var WINDOW_ID = 'asktru.Donote.dashboard';
+var WINDOW_ID_FLOATING = 'asktru.Donote.dashboardWindow';
 
 function getSettings() {
   var s = DataStore.settings || {};
@@ -1077,7 +1078,7 @@ function buildDashboardHTML(pinnedNotes, selectedFilename, noteHTML, headings, m
   return html;
 }
 
-function buildFullHTML(bodyContent) {
+function buildFullHTML(bodyContent, windowID) {
   var themeCSS = getThemeCSS();
   var pluginCSS = getInlineCSS();
 
@@ -1099,7 +1100,7 @@ function buildFullHTML(bodyContent) {
     '</head>\n<body>\n' +
     bodyContent + '\n' +
     '  <div class="dn-toast" id="dnToast"></div>\n' +
-    '  <script>\n    var receivingPluginID = \'' + PLUGIN_ID + '\';\n  <\/script>\n' +
+    '  <script>\n    var receivingPluginID = \'' + PLUGIN_ID + '\';\n    var npWindowID = \'' + (windowID || WINDOW_ID) + '\';\n  <\/script>\n' +
     '  <script type="text/javascript" src="donoteEvents.js"><\/script>\n' +
     '  <script type="text/javascript" src="../np.Shared/pluginToHTMLCommsBridge.js"><\/script>\n' +
     '</body>\n</html>';
@@ -1633,7 +1634,7 @@ function getInlineCSS() {
 // MAIN ENTRY & MESSAGE HANDLING
 // ============================================
 
-async function showDonote(selectedFilename) {
+async function showDonote(selectedFilename, targetWindowID) {
   try {
     CommandBar.showLoading(true, 'Loading Donote...');
     await CommandBar.onAsyncThread();
@@ -1680,29 +1681,39 @@ async function showDonote(selectedFilename) {
     }
 
     taskStats = getTaskStats(noteContent);
+
+    var winID = targetWindowID || WINDOW_ID;
+    var isFloating = winID === WINDOW_ID_FLOATING;
+
     var bodyContent = buildDashboardHTML(pinnedNotes, filename, noteHTML, headings, metadata, filters, taskStats);
-    var fullHTML = buildFullHTML(bodyContent);
+    var fullHTML = buildFullHTML(bodyContent, winID);
 
     await CommandBar.onMainThread();
     CommandBar.showLoading(false);
 
     var winOptions = {
-      customId: WINDOW_ID,
-      savedFilename: '../../asktru.Donote/donote.html',
+      customId: winID,
+      savedFilename: isFloating ? '../../asktru.Donote/donote_window.html' : '../../asktru.Donote/donote.html',
       shouldFocus: true,
       reuseUsersWindowRect: true,
       headerBGColor: 'transparent',
       autoTopPadding: true,
       showReloadButton: true,
       reloadPluginID: PLUGIN_ID,
-      reloadCommandName: 'Donote',
+      reloadCommandName: isFloating ? 'Open in separate window' : 'Open in sidebar',
       icon: 'fa-book-open',
       iconColor: '#6366F1',
     };
 
-    var result = await HTMLView.showInMainWindow(fullHTML, 'Donote', winOptions);
-    if (!result || !result.success) {
+    if (isFloating) {
+      winOptions.width = 1000;
+      winOptions.height = 800;
       await HTMLView.showWindowWithOptions(fullHTML, 'Donote', winOptions);
+    } else {
+      var result = await HTMLView.showInMainWindow(fullHTML, 'Donote', winOptions);
+      if (!result || !result.success) {
+        await HTMLView.showWindowWithOptions(fullHTML, 'Donote', winOptions);
+      }
     }
   } catch (err) {
     CommandBar.showLoading(false);
@@ -1712,6 +1723,12 @@ async function showDonote(selectedFilename) {
 
 async function refreshDonote() {
   await showDonote();
+}
+
+// Open the same viewer in a separate (floating) window, distinct from the
+// sidebar embed so the two views stay independently routed.
+async function showDonoteWindow() {
+  await showDonote(null, WINDOW_ID_FLOATING);
 }
 
 async function sendToHTMLWindow(windowId, type, data) {
@@ -1744,7 +1761,7 @@ function getDoneTag() {
   return '@done(' + y + '-' + mo + '-' + d + ' ' + String(h12).padStart(2, '0') + ':' + mi + ' ' + ampm + ')';
 }
 
-async function sendFilterBarUpdate(filename) {
+async function sendFilterBarUpdate(filename, targetWindowID) {
   var note = getNoteByFilename(filename);
   if (!note) return;
   var content = note.content || '';
@@ -1756,7 +1773,7 @@ async function sendFilterBarUpdate(filename) {
   if (parsed.frontmatter['dn-filter-date']) filters.date = parsed.frontmatter['dn-filter-date'];
   if (parsed.frontmatter['dn-filter-type']) filters.type = parsed.frontmatter['dn-filter-type'];
   var filterBarHTML = buildFilterBar(filters, stats);
-  await sendToHTMLWindow(WINDOW_ID, 'FILTER_BAR_UPDATED', {
+  await sendToHTMLWindow(targetWindowID || WINDOW_ID, 'FILTER_BAR_UPDATED', {
     filterBarHTML: filterBarHTML,
     filters: filters,
   });
@@ -1765,6 +1782,7 @@ async function sendFilterBarUpdate(filename) {
 async function onMessageFromHTMLView(actionType, data) {
   try {
     var msg = typeof data === 'string' ? JSON.parse(data) : data;
+    var replyWindowID = (msg && msg._windowID) || WINDOW_ID;
 
     switch (actionType) {
       case 'selectNote':
@@ -1797,7 +1815,7 @@ async function onMessageFromHTMLView(actionType, data) {
             if (parsed.frontmatter['dn-filter-type']) selFilters.type = parsed.frontmatter['dn-filter-type'];
             var filterBarHTML = buildFilterBar(selFilters, selStats);
 
-            await sendToHTMLWindow(WINDOW_ID, 'NOTE_LOADED', {
+            await sendToHTMLWindow(replyWindowID, 'NOTE_LOADED', {
               filename: msg.filename,
               noteHTML: noteHTML,
               headings: headings,
@@ -1858,7 +1876,7 @@ async function onMessageFromHTMLView(actionType, data) {
               if (newType === 'done' || newType === 'checklistDone') uiStatus = 'done';
               else if (newType === 'cancelled' || newType === 'checklistCancelled') uiStatus = 'cancelled';
 
-              await sendToHTMLWindow(WINDOW_ID, 'TASK_TOGGLED', {
+              await sendToHTMLWindow(replyWindowID, 'TASK_TOGGLED', {
                 filename: msg.filename,
                 lineIndex: targetLine,
                 status: uiStatus,
@@ -1874,7 +1892,7 @@ async function onMessageFromHTMLView(actionType, data) {
                 }
               }
 
-              await sendFilterBarUpdate(msg.filename);
+              await sendFilterBarUpdate(msg.filename, replyWindowID);
             }
           }
         }
@@ -1904,12 +1922,12 @@ async function onMessageFromHTMLView(actionType, data) {
               cpPara.content = cpPrefixes[cpNewPri] + cpBase;
               cpNote.updateParagraph(cpPara);
               // Inline update — no full refresh
-              await sendToHTMLWindow(WINDOW_ID, 'PRIORITY_CHANGED', {
+              await sendToHTMLWindow(replyWindowID, 'PRIORITY_CHANGED', {
                 filename: msg.filename,
                 lineIndex: cpLine,
                 newPriority: cpNewPri,
               });
-              await sendFilterBarUpdate(msg.filename);
+              await sendFilterBarUpdate(msg.filename, replyWindowID);
             }
           }
         }
@@ -1935,7 +1953,7 @@ async function onMessageFromHTMLView(actionType, data) {
               }
               stPara.content = stContent;
               stNote.updateParagraph(stPara);
-              await showDonote(msg.filename);
+              await showDonote(msg.filename, replyWindowID);
             }
           }
         }
@@ -1978,7 +1996,7 @@ async function onMessageFromHTMLView(actionType, data) {
             }
             fNote.content = fLines.join('\n');
             // Send filter update to HTML (no full refresh)
-            await sendToHTMLWindow(WINDOW_ID, 'FILTER_CHANGED', {
+            await sendToHTMLWindow(replyWindowID, 'FILTER_CHANGED', {
               group: msg.group,
               value: msg.value,
             });
@@ -2147,7 +2165,7 @@ async function onMessageFromHTMLView(actionType, data) {
           if (pinParsed.frontmatter.pin !== undefined) {
             // Remove pin (and clean up empty frontmatter)
             pinNote.content = removeFrontmatterKey(pinContent, 'pin');
-            await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Unpinned' });
+            await sendToHTMLWindow(replyWindowID, 'SHOW_TOAST', { message: 'Unpinned' });
           } else {
             // Add pin — find highest pin value and add 1
             var maxPin = 0;
@@ -2170,10 +2188,10 @@ async function onMessageFromHTMLView(actionType, data) {
               pLines.unshift('---', 'pin: ' + newPin, '---');
             }
             pinNote.content = pLines.join('\n');
-            await sendToHTMLWindow(WINDOW_ID, 'SHOW_TOAST', { message: 'Pinned' });
+            await sendToHTMLWindow(replyWindowID, 'SHOW_TOAST', { message: 'Pinned' });
           }
           // Refresh to show updated sidebar
-          await showDonote(getSettings().lastSelectedNote);
+          await showDonote(getSettings().lastSelectedNote, replyWindowID);
         }
         break;
 
@@ -2350,6 +2368,7 @@ async function onUpdateOrInstall() {
 }
 
 globalThis.showDonote = showDonote;
+globalThis.showDonoteWindow = showDonoteWindow;
 globalThis.onMessageFromHTMLView = onMessageFromHTMLView;
 globalThis.refreshDonote = refreshDonote;
 globalThis.togglePinCommand = togglePinCommand;
