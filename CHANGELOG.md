@@ -1,5 +1,10 @@
 # What's changed in 📌 Donote plugin?
 
+## [1.5.0] 2026-06-07
+### New
+- **Open in separate window** for the viewer, plus standardized **Open** commands (sidebar / separate window, and current-note variants) with per-window reply routing.
+- np.Shared is auto-installed on install/update.
+
 ## [1.4.0] 2026-05-09
 ### New
 - **Focus mode**: an eye icon after each heading dims everything outside the focused section; multiple headings can be focused simultaneously. State is persisted via a 👀 emoji on the heading.

@@ -7,8 +7,8 @@
   "plugin.description": "A note viewer with pinned notes, markdown rendering, and table of contents.",
   "plugin.icon": "📖",
   "plugin.author": "asktru",
-  "plugin.version": "1.4.0",
-  "plugin.lastUpdateInfo": "Independent Text/Tasks/Checklists toggles in the filter bar; new Focus mode — eye icon after each heading dims everything outside the focused section, persisted via a 👀 emoji.",
+  "plugin.version": "1.5.0",
+  "plugin.lastUpdateInfo": "Standardized Open commands with a new 'Open in separate window' for the viewer, per-window reply routing, and automatic np.Shared installation.",
   "plugin.script": "script.js",
   "plugin.isRemote": "false",
   "plugin.requiredFiles": [
