@@ -7,8 +7,8 @@
   "plugin.description": "A note viewer with pinned notes, markdown rendering, and table of contents.",
   "plugin.icon": "📖",
   "plugin.author": "asktru",
-  "plugin.version": "1.5.0",
-  "plugin.lastUpdateInfo": "Standardized Open commands with a new 'Open in separate window' for the viewer, per-window reply routing, and automatic np.Shared installation.",
+  "plugin.version": "1.5.1",
+  "plugin.lastUpdateInfo": "Support for NotePlan's Apple Reminders links: @remind(...) tags are hidden instead of shown as raw text.",
   "plugin.script": "script.js",
   "plugin.isRemote": "false",
   "plugin.requiredFiles": [

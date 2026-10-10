@@ -1,5 +1,9 @@
 # What's changed in 📌 Donote plugin?
 
+## [1.5.1] 2026-10-10
+### Fixes
+- `@remind(...)` tags (NotePlan's Apple Reminders link) are hidden instead of rendered as raw text or a mention.
+
 ## [1.5.0] 2026-06-07
 ### New
 - **Open in separate window** for the viewer, plus standardized **Open** commands (sidebar / separate window, and current-note variants) with per-window reply routing.

@@ -293,8 +293,13 @@ function extractHeadings(body, fullContent) {
 // MARKDOWN RENDERER — Line-by-line state machine
 // ============================================
 
+// NotePlan Apple Reminders link: @remind, @remind(args) or linked @remind(args:::reminderId)
+var REMIND_RE = /\s*@remind(?:\([^()]*\)|(?![\w(]))/g;
+
 function renderInline(str) {
   if (!str) return '';
+  // Hide Apple Reminders links (NotePlan shows them as a pill; we don't render them)
+  str = str.replace(REMIND_RE, '');
 
   // Calendar event deeplink: ![📅](DATE TIME:::ID:::NA:::TITLE:::COLOR)
   var imgStart = str.indexOf('![');
